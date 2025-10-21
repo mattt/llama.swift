@@ -27,7 +27,14 @@ jobs:
             runs-on: macos-26
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Skip if commit is from sync workflow
+        if: github.event.head_commit.author.name == 'GitHub Actions' && startsWith(github.event.head_commit.message, 'Update llama.cpp release to')
+        run: |
+          echo "Skipping CI for automated sync workflow commit"
+          exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Cache Swift Package Manager dependencies
         uses: actions/cache@v4
