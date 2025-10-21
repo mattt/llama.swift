@@ -1,0 +1,81 @@
+name: Sync llama.cpp Release
+
+on:
+  schedule:
+    - cron: "0 * * * *" # Run every hour
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  sync-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Fetch latest llama.cpp release
+        id: fetch_release
+        run: |
+          LATEST_RELEASE=$(curl -sL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+          echo "Latest llama.cpp release: $LATEST_RELEASE"
+          echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
+
+      - name: Check current version in Package.swift
+        id: check_current
+        run: |
+          CURRENT_VERSION=$(grep -oP '(?<=llama-)[^/]+(?=-xcframework\.zip)' Package.swift || echo "")
+          echo "Current version in Package.swift: $CURRENT_VERSION"
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
+
+      - name: Compare versions
+        id: compare_versions
+        run: |
+          if [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
+            echo "New release found: $LATEST_RELEASE (current: $CURRENT_VERSION)"
+            echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
+          else
+            echo "No update needed. Current version: $CURRENT_VERSION"
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Get release asset checksum
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          # Get the SHA256 digest from the release assets
+          CHECKSUM=$(curl -s "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE" | jq -r '.assets[] | select(.name | contains("xcframework.zip")) | .digest' | sed 's/sha256://')
+          echo "Asset checksum: $CHECKSUM"
+          echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
+
+      - name: Update Package.swift
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          # Update the URL
+          sed -i "s|url: \".*\"|url: \"https://github.com/ggerganov/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
+          # Update the checksum
+          sed -i "s|checksum: \".*\"|checksum: \"$CHECKSUM\"|" Package.swift
+          echo "Updated Package.swift with new release $LATEST_RELEASE"
+
+      - name: Verify Package.swift changes
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          echo "Updated Package.swift:"
+          cat Package.swift
+
+      - name: Commit and push changes
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add Package.swift
+          git commit -m "Update to llama.cpp release $LATEST_RELEASE"
+          git push origin main
+
+      - name: Create and push tag
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          git tag "$LATEST_RELEASE"
+          git push origin "$LATEST_RELEASE"
+          echo "Created and pushed tag: $LATEST_RELEASE"
