@@ -57,6 +57,36 @@ public enum Llama {
     /// A pointer to a GGML computation graph
     public typealias GGMLCGraph = OpaquePointer
 
+    /// Model parameters for loading
+    public typealias ModelParams = llama_model_params
+
+    /// Context parameters for initialization
+    public typealias ContextParams = llama_context_params
+
+    /// Model quantize parameters
+    public typealias ModelQuantizeParams = llama_model_quantize_params
+
+    /// Sampler chain parameters
+    public typealias SamplerChainParams = llama_sampler_chain_params
+
+    /// Chat message structure
+    public typealias ChatMessage = llama_chat_message
+
+    /// Logit bias structure
+    public typealias LogitBias = llama_logit_bias
+
+    /// Token data array
+    public typealias TokenDataArray = llama_token_data_array
+
+    /// Performance context data
+    public typealias PerfContextData = llama_perf_context_data
+
+    /// Performance sampler data
+    public typealias PerfSamplerData = llama_perf_sampler_data
+
+    /// Optimization parameters
+    public typealias OptParams = llama_opt_params
+
     // MARK: - Enums and Constants
 
     /// Vocabulary types
@@ -480,12 +510,12 @@ public enum Llama {
     // MARK: - Model Functions
 
     /// Load a model from file
-    public static func modelLoadFromFile(_ path: String, _ params: llama_model_params) -> Model? {
+    public static func modelLoadFromFile(_ path: String, _ params: ModelParams) -> Model? {
         return llama_model_load_from_file(path, params)
     }
 
     /// Load a model from multiple splits
-    public static func modelLoadFromSplits(_ paths: [String], _ params: llama_model_params)
+    public static func modelLoadFromSplits(_ paths: [String], _ params: ModelParams)
         -> Model?
     {
         var cPaths = paths.map { UnsafePointer<CChar>?(strdup($0)) }
@@ -505,7 +535,7 @@ public enum Llama {
     }
 
     /// Get default model parameters
-    public static func modelDefaultParams() -> llama_model_params {
+    public static func modelDefaultParams() -> ModelParams {
         return llama_model_default_params()
     }
 
@@ -654,26 +684,26 @@ public enum Llama {
     public static func modelQuantize(
         _ fnameInp: String,
         _ fnameOut: String,
-        _ params: llama_model_quantize_params
+        _ params: ModelQuantizeParams
     ) -> UInt32 {
         var mutableParams = params
         return llama_model_quantize(fnameInp, fnameOut, &mutableParams)
     }
 
     /// Get default model quantize parameters
-    public static func modelQuantizeDefaultParams() -> llama_model_quantize_params {
+    public static func modelQuantizeDefaultParams() -> ModelQuantizeParams {
         return llama_model_quantize_default_params()
     }
 
     // MARK: - Context Functions
 
     /// Initialize context from model
-    public static func initFromModel(_ model: Model, _ params: llama_context_params) -> Context? {
+    public static func initFromModel(_ model: Model, _ params: ContextParams) -> Context? {
         return llama_init_from_model(model, params)
     }
 
     /// Get default context parameters
-    public static func contextDefaultParams() -> llama_context_params {
+    public static func contextDefaultParams() -> ContextParams {
         return llama_context_default_params()
     }
 
@@ -983,7 +1013,7 @@ public enum Llama {
     /// Apply chat template
     public static func chatApplyTemplate(
         _ tmpl: String?,
-        _ chat: UnsafePointer<llama_chat_message>,
+        _ chat: UnsafePointer<ChatMessage>,
         _ nMsg: Int,
         _ addAss: Bool,
         _ buffer: UnsafeMutablePointer<CChar>,
@@ -1218,12 +1248,12 @@ public enum Llama {
     // MARK: - Sampling Functions
 
     /// Initialize sampler chain
-    public static func samplerChainInit(_ params: llama_sampler_chain_params) -> Sampler? {
+    public static func samplerChainInit(_ params: SamplerChainParams) -> Sampler? {
         return llama_sampler_chain_init(params)
     }
 
     /// Get default sampler chain parameters
-    public static func samplerChainDefaultParams() -> llama_sampler_chain_params {
+    public static func samplerChainDefaultParams() -> SamplerChainParams {
         return llama_sampler_chain_default_params()
     }
 
@@ -1404,7 +1434,7 @@ public enum Llama {
     public static func samplerInitLogitBias(
         _ nVocab: Int32,
         _ nLogitBias: Int32,
-        _ logitBias: UnsafePointer<llama_logit_bias>
+        _ logitBias: UnsafePointer<LogitBias>
     ) -> UnsafeMutablePointer<llama_sampler> {
         return llama_sampler_init_logit_bias(nVocab, nLogitBias, logitBias)
     }
@@ -1436,7 +1466,7 @@ public enum Llama {
     /// Apply sampler
     public static func samplerApply(
         _ sampler: UnsafeMutablePointer<llama_sampler>,
-        _ curP: UnsafeMutablePointer<llama_token_data_array>
+        _ curP: UnsafeMutablePointer<TokenDataArray>
     ) {
         llama_sampler_apply(sampler, curP)
     }
@@ -1519,7 +1549,7 @@ public enum Llama {
     // MARK: - Performance Functions
 
     /// Get context performance data
-    public static func perfContext(_ context: Context) -> llama_perf_context_data {
+    public static func perfContext(_ context: Context) -> PerfContextData {
         return llama_perf_context(context)
     }
 
@@ -1535,7 +1565,7 @@ public enum Llama {
 
     /// Get sampler performance data
     public static func perfSampler(_ chain: UnsafeMutablePointer<llama_sampler>)
-        -> llama_perf_sampler_data
+        -> PerfSamplerData
     {
         return llama_perf_sampler(chain)
     }
@@ -1553,7 +1583,7 @@ public enum Llama {
     // MARK: - Training Functions
 
     /// Initialize optimization
-    public static func optInit(_ context: Context, _ model: Model, _ loptParams: llama_opt_params) {
+    public static func optInit(_ context: Context, _ model: Model, _ loptParams: OptParams) {
         llama_opt_init(context, model, loptParams)
     }
 
