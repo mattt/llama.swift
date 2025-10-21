@@ -115,7 +115,7 @@ jobs:
         if: env.UPDATE_NEEDED == 'true'
         run: |
           # Update the URL
-          sed -i "s|url: \".*\"|url: \"https://github.com/ggerganov/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
+          sed -i "s|url: \".*\"|url: \"https://github.com/ggml-org/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
           # Update the checksum
           sed -i "s|checksum: \".*\"|checksum: \"$CHECKSUM\"|" Package.swift
           echo "Updated Package.swift with new release $LATEST_RELEASE"

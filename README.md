@@ -1,6 +1,10 @@
 # llama-swift
 
+<<<<<<< HEAD
 A Swift wrapper for [llama.cpp](https://github.com/ggerganov/llama.cpp)
+=======
+A Swift wrapper for [llama.cpp](https://github.com/ggml-org/llama.cpp) 
+>>>>>>> f3e01c0 (Update repo location to ggml-org/llama.cpp)
 that provides direct access to the underlying C API through modern Swift 6 C++ interoperability.
 Use it directly, or build your own abstraction on top of it.
 
@@ -148,4 +152,4 @@ See the [LICENSE](LICENSE.md) file for more info.
 
 ## Credits
 
-This package wraps the [llama.cpp](https://github.com/ggerganov/llama.cpp) project by @ggerganov.
+This package wraps the [llama.cpp](https://github.com/ggml-org/llama.cpp) project by @ggerganov.
