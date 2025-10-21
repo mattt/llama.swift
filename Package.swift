@@ -30,7 +30,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LlamaTests",
-            dependencies: ["Llama"],
+            dependencies: ["Llama"]
         ),
     ]
 )
