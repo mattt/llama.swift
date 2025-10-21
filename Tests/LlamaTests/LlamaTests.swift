@@ -3,7 +3,7 @@ import Testing
 
 @testable import Llama
 
-@Suite("Llama Tests")
+@Suite("Llama Tests", .serialized)
 struct LlamaTests {
     // MARK: - Type Tests
 
