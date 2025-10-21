@@ -19,7 +19,37 @@ jobs:
       - name: Fetch latest llama.cpp release
         id: fetch_release
         run: |
-          LATEST_RELEASE=$(curl -sL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest | jq -r .tag_name)
+          # Fetch latest release with authentication and error handling
+          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
+
+          # Check if the API call was successful
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to fetch latest release from GitHub API"
+            exit 1
+          fi
+
+          # Check for rate limiting
+          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
+            echo "ERROR: GitHub API rate limit exceeded"
+            exit 1
+          fi
+
+          # Check for other API errors
+          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
+            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
+            exit 1
+          fi
+
+          # Extract tag name and validate
+          LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
+          if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
+            echo "ERROR: Failed to extract tag_name from API response"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
           echo "Latest llama.cpp release: $LATEST_RELEASE"
           echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
 
@@ -44,12 +74,40 @@ jobs:
       - name: Get release asset checksum
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Get the SHA256 digest from the release assets
-          CHECKSUM=$(curl -s "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE" | jq -r '.assets[] | select(.name | contains("xcframework.zip")) | .digest' | sed 's/sha256://')
-          if [ -z "$CHECKSUM" ]; then
-            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+          # Get release details with authentication and error handling
+          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE")
+
+          # Check if the API call was successful
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to fetch release details from GitHub API"
             exit 1
           fi
+
+          # Check for rate limiting
+          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
+            echo "ERROR: GitHub API rate limit exceeded"
+            exit 1
+          fi
+
+          # Check for other API errors
+          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
+            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
+            exit 1
+          fi
+
+          # Get the SHA256 digest from the release assets
+          CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | contains("xcframework.zip")) | .digest' | sed 's/sha256://')
+
+          # Validate checksum was found
+          if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
+            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+            echo "Available assets:"
+            echo "$RESPONSE" | jq -r '.assets[] | .name'
+            exit 1
+          fi
+
           echo "Asset checksum: $CHECKSUM"
           echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
 
