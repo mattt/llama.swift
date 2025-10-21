@@ -57,6 +57,10 @@ jobs:
         id: check_current
         run: |
           CURRENT_VERSION=$(grep -oP '(?<=llama-)[^/]+(?=-xcframework\.zip)' Package.swift || echo "")
+          if [ -z "$CURRENT_VERSION" ]; then
+            echo "ERROR: Could not extract current version from Package.swift. This may indicate a format change or a corrupted file."
+            exit 1
+          fi
           echo "Current version in Package.swift: $CURRENT_VERSION"
           echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
 
@@ -114,11 +118,21 @@ jobs:
       - name: Update Package.swift
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Update the URL
-          sed -i "s|url: \".*\"|url: \"https://github.com/ggml-org/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
-          # Update the checksum
-          sed -i "s|checksum: \".*\"|checksum: \"$CHECKSUM\"|" Package.swift
+          # Update the URL - target the binaryTarget url field specifically
+          sed -i "s|url:\s*\"https://github.com/ggml-org/llama.cpp/releases/download/[^\"]*\"|url: \"https://github.com/ggml-org/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
+          # Update the checksum - target the binaryTarget checksum field specifically
+          sed -i "s|checksum:\s*\"[^\"]*\"|checksum: \"$CHECKSUM\"|" Package.swift
           echo "Updated Package.swift with new release $LATEST_RELEASE"
+
+      - name: Update README version
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          # Update the version in README.md installation example
+          # Convert release tag to version format (e.g., b6816 -> 1.6816.0)
+          VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
+          README_VERSION="1.${VERSION_NUMBER}.0"
+          sed -i "s|exact: \"[^\"]*\"|exact: \"$README_VERSION\"|" README.md
+          echo "Updated README.md with version $README_VERSION"
 
       - name: Verify Package.swift changes
         if: env.UPDATE_NEEDED == 'true'
@@ -131,7 +145,7 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions'
           git config --global user.email 'actions@github.com'
-          git add Package.swift
+          git add Package.swift README.md
           git commit -m "Update to llama.cpp release $LATEST_RELEASE"
           git push origin main
 
