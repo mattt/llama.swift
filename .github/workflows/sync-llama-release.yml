@@ -46,6 +46,10 @@ jobs:
         run: |
           # Get the SHA256 digest from the release assets
           CHECKSUM=$(curl -s "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE" | jq -r '.assets[] | select(.name | contains("xcframework.zip")) | .digest' | sed 's/sha256://')
+          if [ -z "$CHECKSUM" ]; then
+            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+            exit 1
+          fi
           echo "Asset checksum: $CHECKSUM"
           echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
 
