@@ -102,7 +102,7 @@ jobs:
           fi
 
           # Get the SHA256 digest from the release assets
-          CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | contains("xcframework.zip")) | .digest' | sed 's/sha256://')
+          CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | endswith("-xcframework.zip")) | .digest' | sed 's/sha256://')
 
           # Validate checksum was found
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
