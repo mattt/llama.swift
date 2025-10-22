@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "llama-swift",
+    name: "llama.swift",
     platforms: [
         .macOS(.v13),
         .iOS(.v16),
