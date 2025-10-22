@@ -171,6 +171,9 @@ jobs:
       - name: Create and push tag
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          git tag "$LATEST_RELEASE"
-          git push origin "$LATEST_RELEASE"
-          echo "Created and pushed tag: $LATEST_RELEASE"
+          # Convert release tag to semver format (e.g., b6816 -> 1.6816.0)
+          VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
+          SEMVER_TAG="1.${VERSION_NUMBER}.0"
+          git tag "$SEMVER_TAG"
+          git push origin "$SEMVER_TAG"
+          echo "Created and pushed tag: $SEMVER_TAG"
