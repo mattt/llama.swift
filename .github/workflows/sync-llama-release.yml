@@ -148,9 +148,10 @@ jobs:
       - name: Verify package resolution
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          swift package resolve
-          echo "Package resolution:"
-          cat Package.resolved
+          if ! swift package resolve; then
+            echo "ERROR: Package resolution failed."
+            exit 1
+          fi
 
       - name: Commit and push changes
         if: env.UPDATE_NEEDED == 'true'
