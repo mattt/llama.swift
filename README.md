@@ -27,44 +27,44 @@ Or add it through Xcode's Package Manager.
 import Llama
 
 // Initialize the backend
-Llama.backendInit()
-defer { Llama.backendFree() }
+llama_backend_init()
+defer { llama_backend_free() }
 
 // Load model
-let modelParams = Llama.modelDefaultParams()
-guard let model = Llama.modelLoadFromFile("/path/to/model.gguf", modelParams) else {
+let modelParams = llama_model_default_params()
+guard let model = llama_model_load_from_file("/path/to/model.gguf", modelParams) else {
     fatalError("Failed to load model")
 }
-defer { Llama.modelFree(model) }
+defer { llama_model_free(model) }
 
 // Create context
-var contextParams = Llama.contextDefaultParams()
+var contextParams = llama_context_default_params()
 contextParams.n_ctx = 2048
 contextParams.n_batch = 512
 
-guard let context = Llama.initFromModel(model, contextParams) else {
+guard let context = llama_init_from_model(model, contextParams) else {
     fatalError("Failed to create context")
 }
-defer { Llama.free(context) }
+defer { llama_free(context) }
 
 // Get vocabulary
-let vocab = Llama.modelGetVocab(model)
+let vocab = llama_model_get_vocab(model)
 
 // Tokenize input
 let prompt = "The future of artificial intelligence is"
 let utf8Count = prompt.utf8.count
 // A buffer large enough to hold all tokens. A simple estimate.
 let maxTokenCount = utf8Count + 1
-var tokens = [Llama.Token](repeating: 0, count: maxTokenCount)
-let tokenCount = Llama.tokenize(vocab, prompt, Int32(utf8Count), &tokens, Int32(maxTokenCount), /* add bos */ true, /* special */ true)
+var tokens = [llama_token](repeating: 0, count: maxTokenCount)
+let tokenCount = llama_tokenize(vocab, prompt, Int32(utf8Count), &tokens, Int32(maxTokenCount), /* add bos */ true, /* special */ true)
 guard tokenCount > 0 else {
     fatalError("Failed to tokenize prompt")
 }
 let promptTokens = Array(tokens.prefix(Int(tokenCount)))
 
 // Create a batch for processing
-var batch = Llama.batchInit(contextParams.n_batch, 0, 1)
-defer { Llama.batchFree(batch) }
+var batch = llama_batch_init(contextParams.n_batch, 0, 1)
+defer { llama_batch_free(batch) }
 
 // Evaluate the prompt
 batch.n_tokens = Int32(promptTokens.count)
@@ -83,7 +83,7 @@ if batch.n_tokens > 0 {
     batch.logits[Int(batch.n_tokens) - 1] = 1
 }
 
-guard Llama.decode(context, batch) == 0 else {
+guard llama_decode(context, batch) == 0 else {
     fatalError("llama_decode failed")
 }
 
@@ -93,28 +93,28 @@ var n_cur = batch.n_tokens
 
 for _ in 0..<100 { // Generate up to 100 tokens
     // Get logits for the last token
-    guard let logits = Llama.getLogitsIth(context, batch.n_tokens - 1) else {
+    guard let logits = llama_get_logits_ith(context, batch.n_tokens - 1) else {
         fatalError("Failed to get logits")
     }
 
     // Simple greedy sampling (choose highest probability token)
-    let vocabSize = Llama.vocabNTokens(vocab)
+    let vocabSize = llama_vocab_n_tokens(vocab)
     var maxLogit = logits[0]
-    var nextToken: Llama.Token = 0
+    var nextToken: llama_token = 0
 
     for i in 1..<Int(vocabSize) {
         if logits[i] > maxLogit {
             maxLogit = logits[i]
-            nextToken = Llama.Token(i)
+            nextToken = llama_token(i)
         }
     }
 
     // Check for end of sequence
-    if nextToken == Llama.vocabEos(vocab) { break }
+    if nextToken == llama_vocab_eos(vocab) { break }
 
     // Convert token to text and print it
     var buffer = [CChar](repeating: 0, count: 16)
-    let length = Llama.tokenToPiece(vocab, nextToken, &buffer, Int32(buffer.count), 0, false)
+    let length = llama_token_to_piece(vocab, nextToken, &buffer, Int32(buffer.count), 0, false)
     if length > 0 {
         let tokenText = String(cString: buffer)
         generatedText += tokenText
@@ -133,7 +133,7 @@ for _ in 0..<100 { // Generate up to 100 tokens
     n_cur += 1
 
     // Decode the new token
-    guard Llama.decode(context, batch) == 0 else {
+    guard llama_decode(context, batch) == 0 else {
         fatalError("llama_decode failed")
     }
 }
