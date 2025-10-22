@@ -27,7 +27,8 @@ jobs:
             runs-on: macos-26
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Cache Swift Package Manager dependencies
         uses: actions/cache@v4

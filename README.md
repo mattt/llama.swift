@@ -1,8 +1,22 @@
-# llama-swift
+# llama.swift
 
-A Swift wrapper for [llama.cpp](https://github.com/ggerganov/llama.cpp)
-that provides direct access to the underlying C API through modern Swift 6 C++ interoperability.
-Use it directly, or build your own abstraction on top of it.
+A package that provides access to
+[llama.cpp](https://github.com/ggml-org/llama.cpp)
+in your Swift projects.
+
+The package automatically stays current with upstream
+[llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases/)
+and uses [Swift Package Manager versioning](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/addingdependencies#Constraining-dependency-versions),
+so you can use `.upToNextMajor(from:)` or `.exact` dependency resolution.
+
+This package re-exports the llama.cpp C++ APIs directly,
+using the precompiled XCFramework provided by the llama.cpp project.
+
+> [!TIP]
+> You can add the XCFramework binary dependency directly to your project
+> without this package.
+> For instructions,
+> see the [llama.cpp README](https://github.com/ggml-org/llama.cpp?tab=readme-ov-file#xcframework)
 
 ## Requirements
 
@@ -15,7 +29,7 @@ Add this package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mattt/llama-swift.git", exact: "1.6816.0")
+    .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "1.6816.0"))
 ]
 ```
 
@@ -25,6 +39,8 @@ Or add it through Xcode's Package Manager.
 
 ```swift
 import Llama
+
+// MARK: - Setup
 
 // Initialize the backend
 llama_backend_init()
@@ -37,61 +53,85 @@ guard let model = llama_model_load_from_file("/path/to/model.gguf", modelParams)
 }
 defer { llama_model_free(model) }
 
-// Create context
+// Create context with configuration
 var contextParams = llama_context_default_params()
-contextParams.n_ctx = 2048
-contextParams.n_batch = 512
+contextParams.n_ctx = 2048    // Context window size
+contextParams.n_batch = 512   // Batch size for processing
 
 guard let context = llama_init_from_model(model, contextParams) else {
     fatalError("Failed to create context")
 }
 defer { llama_free(context) }
 
-// Get vocabulary
+// MARK: - Tokenization
+
+// Get vocabulary for tokenization
 let vocab = llama_model_get_vocab(model)
 
-// Tokenize input
+// Prepare input text
 let prompt = "The future of artificial intelligence is"
 let utf8Count = prompt.utf8.count
-// A buffer large enough to hold all tokens. A simple estimate.
+
+// Create token buffer (simple estimate: UTF-8 count + 1)
 let maxTokenCount = utf8Count + 1
 var tokens = [llama_token](repeating: 0, count: maxTokenCount)
-let tokenCount = llama_tokenize(vocab, prompt, Int32(utf8Count), &tokens, Int32(maxTokenCount), /* add bos */ true, /* special */ true)
+
+// Tokenize the input prompt
+let tokenCount = llama_tokenize(
+    vocab,
+    prompt,
+    Int32(utf8Count),
+    &tokens,
+    Int32(maxTokenCount),
+    true,  // add BOS (beginning of sequence)
+    true   // special tokens
+)
+
 guard tokenCount > 0 else {
     fatalError("Failed to tokenize prompt")
 }
+
 let promptTokens = Array(tokens.prefix(Int(tokenCount)))
 
-// Create a batch for processing
+// MARK: - Initial Evaluation
+
+// Create batch for processing
 var batch = llama_batch_init(contextParams.n_batch, 0, 1)
 defer { llama_batch_free(batch) }
 
-// Evaluate the prompt
+// Prepare batch with prompt tokens
 batch.n_tokens = Int32(promptTokens.count)
+
 for i in 0..<promptTokens.count {
     let idx = Int(i)
     batch.token[idx] = promptTokens[idx]
     batch.pos[idx] = Int32(i)
     batch.n_seq_id[idx] = 1
+
     if let seq_ids = batch.seq_id, let seq_id = seq_ids[idx] {
         seq_id[0] = 0
     }
+
     batch.logits[idx] = 0
 }
-// Only get logits for the last token
+
+// Only compute logits for the last token
 if batch.n_tokens > 0 {
     batch.logits[Int(batch.n_tokens) - 1] = 1
 }
 
+// Evaluate the prompt
 guard llama_decode(context, batch) == 0 else {
     fatalError("llama_decode failed")
 }
 
-// Generate text
+// MARK: - Text Generation
+
 var generatedText = prompt
 var n_cur = batch.n_tokens
 
-for _ in 0..<100 { // Generate up to 100 tokens
+// Generate up to 100 tokens
+for _ in 0..<100 {
     // Get logits for the last token
     guard let logits = llama_get_logits_ith(context, batch.n_tokens - 1) else {
         fatalError("Failed to get logits")
@@ -110,11 +150,21 @@ for _ in 0..<100 { // Generate up to 100 tokens
     }
 
     // Check for end of sequence
-    if nextToken == llama_vocab_eos(vocab) { break }
+    if nextToken == llama_vocab_eos(vocab) {
+        break
+    }
 
-    // Convert token to text and print it
+    // Convert token to text
     var buffer = [CChar](repeating: 0, count: 16)
-    let length = llama_token_to_piece(vocab, nextToken, &buffer, Int32(buffer.count), 0, false)
+    let length = llama_token_to_piece(
+        vocab,
+        nextToken,
+        &buffer,
+        Int32(buffer.count),
+        0,
+        false
+    )
+
     if length > 0 {
         let tokenText = String(cString: buffer)
         generatedText += tokenText
@@ -125,11 +175,12 @@ for _ in 0..<100 { // Generate up to 100 tokens
     batch.token[0] = nextToken
     batch.pos[0] = n_cur
     batch.n_seq_id[0] = 1
+
     if let seq_ids = batch.seq_id, let seq_id = seq_ids[0] {
         seq_id[0] = 0
     }
-    batch.logits[0] = 1
 
+    batch.logits[0] = 1
     n_cur += 1
 
     // Decode the new token
@@ -138,8 +189,11 @@ for _ in 0..<100 { // Generate up to 100 tokens
     }
 }
 
-print("\n\nGenerated text: \(generatedText)")
+print("Generated text: \(generatedText)")
 ```
+
+For more examples,
+see the [llama.cpp repo](https://github.com/ggml-org/llama.cpp/tree/master/examples/batched.swift).
 
 ## License
 
@@ -148,4 +202,5 @@ See the [LICENSE](LICENSE.md) file for more info.
 
 ## Credits
 
-This package wraps the [llama.cpp](https://github.com/ggerganov/llama.cpp) project by @ggerganov.
+This package wraps the [llama.cpp](https://github.com/ggml-org/llama.cpp) project.
+Thanks to all of that project's contributors for making this possible.
