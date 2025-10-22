@@ -115,10 +115,18 @@ jobs:
       - name: Update Package.swift
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Update the URL - target the binaryTarget url field specifically
-          sed -i "s|url:\s*\"https://github.com/ggml-org/llama.cpp/releases/download/[^\"]*\"|url: \"https://github.com/ggml-org/llama.cpp/releases/download/$LATEST_RELEASE/llama-$LATEST_RELEASE-xcframework.zip\"|" Package.swift
-          # Update the checksum - target the binaryTarget checksum field specifically
-          sed -i "s|checksum:\s*\"[^\"]*\"|checksum: \"$CHECKSUM\"|" Package.swift
+          # Extract current version from Package.swift using sed
+          CURRENT_VERSION=$(sed -n 's/.*llama-\([^/]*\)-xcframework\.zip.*/\1/p' Package.swift)
+          echo "Current version in Package.swift: $CURRENT_VERSION"
+
+          # Update the URL by replacing the current version with the new one
+          sed "s|$CURRENT_VERSION|$LATEST_RELEASE|g" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
+
+          # Update the checksum - find the current checksum and replace it
+          CURRENT_CHECKSUM=$(sed -n 's/.*checksum: "\([^"]*\)".*/\1/p' Package.swift)
+          echo "Current checksum: $CURRENT_CHECKSUM"
+          sed "s|$CURRENT_CHECKSUM|$CHECKSUM|" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
+
           echo "Updated Package.swift with new release $LATEST_RELEASE"
 
       - name: Update README version
