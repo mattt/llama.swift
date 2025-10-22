@@ -8,10 +8,16 @@ on:
 jobs:
   sync-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Fetch latest llama.cpp release
         id: fetch_release
