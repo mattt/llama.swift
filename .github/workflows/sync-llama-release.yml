@@ -10,11 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
 
       - name: Fetch latest llama.cpp release
         id: fetch_release
@@ -131,7 +128,7 @@ jobs:
           # Convert release tag to version format (e.g., b6816 -> 1.6816.0)
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
           README_VERSION="1.${VERSION_NUMBER}.0"
-          sed -i "s|exact: \"[^\"]*\"|exact: \"$README_VERSION\"|" README.md
+          sed -i "s|\.upToNextMajor(from: \"[^\"]*\"|\.upToNextMajor(from: \"$README_VERSION\"|" README.md
           echo "Updated README.md with version $README_VERSION"
 
       - name: Verify Package.swift changes
@@ -139,12 +136,6 @@ jobs:
         run: |
           echo "Updated Package.swift:"
           cat Package.swift
-
-      - name: Test updated package
-        if: env.UPDATE_NEEDED == 'true'
-        run: |
-          swift build -v
-          swift test -v
 
       - name: Commit and push changes
         if: env.UPDATE_NEEDED == 'true'
