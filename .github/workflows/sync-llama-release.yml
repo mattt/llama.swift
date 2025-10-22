@@ -137,6 +137,13 @@ jobs:
           echo "Updated Package.swift:"
           cat Package.swift
 
+      - name: Verify package resolution
+        if: env.UPDATE_NEEDED == 'true'
+        run: |
+          swift package resolve
+          echo "Package resolution:"
+          cat Package.resolved
+
       - name: Commit and push changes
         if: env.UPDATE_NEEDED == 'true'
         run: |
