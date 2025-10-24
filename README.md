@@ -3,18 +3,18 @@
 A package that provides access to
 [llama.cpp](https://github.com/ggml-org/llama.cpp)
 in your Swift projects.
+It re-exports the llama.cpp C++ APIs directly,
+using the precompiled XCFramework provided by the llama.cpp project.
 
 The package automatically stays current with upstream
 [llama.cpp releases](https://github.com/ggml-org/llama.cpp/releases/)
 and uses [Swift Package Manager versioning](https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/addingdependencies#Constraining-dependency-versions),
-so you can use `.upToNextMajor(from:)` or `.exact` dependency resolution.
-
-This package re-exports the llama.cpp C++ APIs directly,
-using the precompiled XCFramework provided by the llama.cpp project.
+so you can use `.upToNextMajor(from:)` or `.exact(_:)` version requirements.
 
 > [!TIP]
 > You can add the XCFramework binary dependency directly to your project
 > without this package.
+>
 > For instructions,
 > see the [llama.cpp README](https://github.com/ggml-org/llama.cpp?tab=readme-ov-file#xcframework)
 
