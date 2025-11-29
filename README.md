@@ -29,7 +29,7 @@ Add this package to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "1.7198.0"))
+    .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "1.7199.0"))
 ]
 ```
 
