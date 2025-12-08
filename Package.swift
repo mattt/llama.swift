@@ -20,8 +20,8 @@ let package = Package(
         .binaryTarget(
             name: "llama-cpp",
             url:
-                "https://github.com/ggml-org/llama.cpp/releases/download/b7316/llama-b7316-xcframework.zip",
-            checksum: "7a228d78f5f3a815e29a158800cc930895ed819523dd32fd09f9f74006e7ade0"
+                "https://github.com/ggml-org/llama.cpp/releases/download/b7317/llama-b7317-xcframework.zip",
+            checksum: "c3c2572bc9fca0bcadd19d765bfca468df1e80f77355232bb3d9abecb68d6790"
         ),
         .target(
             name: "Llama",
