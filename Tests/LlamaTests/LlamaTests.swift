@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-import Llama
+import LlamaSwift
 
 @Suite("Llama Tests", .serialized)
 struct LlamaTests {

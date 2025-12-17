@@ -38,7 +38,7 @@ Or add it through Xcode's Package Manager.
 ## Usage
 
 ```swift
-import Llama
+import LlamaSwift
 
 // MARK: - Setup
 

@@ -12,8 +12,8 @@ let package = Package(
     ],
     products: [
         .library(
-            name: "Llama",
-            targets: ["Llama"]
+            name: "LlamaSwift",
+            targets: ["LlamaSwift"]
         )
     ],
     targets: [
@@ -24,13 +24,13 @@ let package = Package(
             checksum: "1a675977ff5b74ba48152235744f66f6de6664a8a2830a5b8e224e48c14bb11d"
         ),
         .target(
-            name: "Llama",
+            name: "LlamaSwift",
             dependencies: ["llama-cpp"],
-            path: "Sources/Llama"
+            path: "Sources/LlamaSwift"
         ),
         .testTarget(
             name: "LlamaTests",
-            dependencies: ["Llama"]
+            dependencies: ["LlamaSwift"]
         ),
     ]
 )
