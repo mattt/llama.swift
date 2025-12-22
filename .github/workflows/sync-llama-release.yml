@@ -152,9 +152,9 @@ jobs:
         if: env.UPDATE_NEEDED == 'true'
         run: |
           # Update the version in README.md installation example
-          # Convert release tag to version format (e.g., b6816 -> 1.6816.0)
+          # Convert release tag to version format (e.g., b6816 -> 2.6816.0)
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
-          README_VERSION="1.${VERSION_NUMBER}.0"
+          README_VERSION="2.${VERSION_NUMBER}.0"
           sed -i "s|\.upToNextMajor(from: \"[^\"]*\"|\.upToNextMajor(from: \"$README_VERSION\"|" README.md
           echo "Updated README.md with version $README_VERSION"
 
@@ -184,9 +184,9 @@ jobs:
       - name: Create and push tag
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Convert release tag to semver format (e.g., b6816 -> 1.6816.0)
+          # Convert release tag to semver format (e.g., b7502 -> 2.7502.0)
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
-          SEMVER_TAG="1.${VERSION_NUMBER}.0"
+          SEMVER_TAG="2.${VERSION_NUMBER}.0"
           git tag "$SEMVER_TAG"
           git push origin "$SEMVER_TAG"
           echo "Created and pushed tag: $SEMVER_TAG"
