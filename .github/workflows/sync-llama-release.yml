@@ -59,7 +59,7 @@ jobs:
       - name: Check current version in Package.swift
         id: check_current
         run: |
-          CURRENT_VERSION=$(grep -oP '(?<=llama-)[^/]+(?=-xcframework\.zip)' Package.swift || echo "")
+          CURRENT_VERSION=$(grep -oP '(?<=llama-)[^/]+(?=-xcframework\.(zip|tar\.gz))' Package.swift || echo "")
           if [ -z "$CURRENT_VERSION" ]; then
             echo "ERROR: Could not extract current version from Package.swift. This may indicate a format change or a corrupted file."
             exit 1
@@ -104,36 +104,49 @@ jobs:
             exit 1
           fi
 
-          # Get the SHA256 digest from the release assets
-          CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | endswith("-xcframework.zip")) | .digest' | sed 's/sha256://')
+          # Get the asset details
+          ASSET_DATA=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | test("-xcframework\\.(zip|tar\\.gz)$"))')
 
-          # Validate checksum was found
-          if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
-            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+          # Get the SHA256 digest
+          CHECKSUM=$(echo "$ASSET_DATA" | jq -r '.digest' | sed 's/sha256://')
+
+          # Get the asset name
+          ASSET_NAME=$(echo "$ASSET_DATA" | jq -r '.name')
+
+          # Validate checksum and name were found
+          if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ] || [ -z "$ASSET_NAME" ] || [ "$ASSET_NAME" = "null" ]; then
+            echo "ERROR: Failed to retrieve checksum or name for release asset."
             echo "Available assets:"
             echo "$RESPONSE" | jq -r '.assets[] | .name'
             exit 1
           fi
 
+          echo "Found asset: $ASSET_NAME"
           echo "Asset checksum: $CHECKSUM"
           echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
+          echo "ASSET_NAME=$ASSET_NAME" >> $GITHUB_ENV
 
       - name: Update Package.swift
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Extract current version from Package.swift using sed
-          CURRENT_VERSION=$(sed -n 's/.*llama-\([^/]*\)-xcframework\.zip.*/\1/p' Package.swift)
           echo "Current version in Package.swift: $CURRENT_VERSION"
 
           # Update the URL by replacing the current version with the new one
           sed "s|$CURRENT_VERSION|$LATEST_RELEASE|g" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
+
+          # Update the extension if needed
+          if [[ "$ASSET_NAME" == *".tar.gz" ]]; then
+            sed 's/-xcframework\.zip/-xcframework.tar.gz/g' Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
+          elif [[ "$ASSET_NAME" == *".zip" ]]; then
+            sed 's/-xcframework\.tar\.gz/-xcframework.zip/g' Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
+          fi
 
           # Update the checksum - find the current checksum and replace it
           CURRENT_CHECKSUM=$(sed -n 's/.*checksum: "\([^"]*\)".*/\1/p' Package.swift)
           echo "Current checksum: $CURRENT_CHECKSUM"
           sed "s|$CURRENT_CHECKSUM|$CHECKSUM|" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
 
-          echo "Updated Package.swift with new release $LATEST_RELEASE"
+          echo "Updated Package.swift with new release $LATEST_RELEASE and asset $ASSET_NAME"
 
       - name: Update README version
         if: env.UPDATE_NEEDED == 'true'
