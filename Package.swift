@@ -21,7 +21,7 @@ let package = Package(
             name: "llama-cpp",
             url:
                 "https://github.com/1R053/llama.swift/releases/download/2.8281.0-catalyst/llama-b8281-xcframework-catalyst.zip",
-            checksum: "47a3b7b0e79c463e8c707e3eb5284facd505c87ef2dbfb683e21c8a6bb420aae"
+            checksum: "02d00e0e2b742ef339bf714e68e0addd6be865123afb348879b302123f30f211"
         ),
         .target(
             name: "LlamaSwift",
