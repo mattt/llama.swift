@@ -52,7 +52,8 @@ jobs:
                 echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
                 exit 0
               fi
-              echo "ERROR: GitHub API authorization failed (HTTP 403): $(echo "$RESPONSE" | jq -r '.message // empty')"
+              MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
             *)
@@ -126,7 +127,8 @@ jobs:
                 echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
                 exit 0
               fi
-              echo "ERROR: GitHub API authorization failed (HTTP 403): $(echo "$RESPONSE" | jq -r '.message // empty')"
+              MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
             *)
