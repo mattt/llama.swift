@@ -23,15 +23,19 @@ jobs:
         id: fetch_release
         run: |
           # Fetch latest release with authentication and error handling
-          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
+          CURL_STATUS=$?
 
           # Treat upstream/transient API issues as a no-op so the run stays green.
-          if [ $? -ne 0 ]; then
+          if [ $CURL_STATUS -ne 0 ]; then
             echo "::warning::Failed to fetch latest release from GitHub API; skipping this run."
             exit 0
           fi
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
           # Check for rate limiting
           if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
@@ -39,7 +43,14 @@ jobs:
             exit 0
           fi
 
-          # Check for other API errors
+          # Fail loudly on authentication/authorization errors: these indicate a
+          # broken workflow configuration that would silently stop release syncing.
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "ERROR: GitHub API authentication/authorization failed (HTTP $HTTP_CODE): $(echo "$RESPONSE" | jq -r '.message')"
+            exit 1
+          fi
+
+          # Treat any remaining API errors as transient and skip this run.
           if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
             echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
             exit 0
@@ -85,16 +96,20 @@ jobs:
         if: env.UPDATE_NEEDED == 'true'
         run: |
           # Get release details with authentication and error handling
-          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE")
+          CURL_STATUS=$?
 
           # Treat upstream/transient API issues as a no-op so the run stays green.
-          if [ $? -ne 0 ]; then
+          if [ $CURL_STATUS -ne 0 ]; then
             echo "::warning::Failed to fetch release details from GitHub API; skipping this run."
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
             exit 0
           fi
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
           # Check for rate limiting
           if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
@@ -103,7 +118,14 @@ jobs:
             exit 0
           fi
 
-          # Check for other API errors
+          # Fail loudly on authentication/authorization errors: these indicate a
+          # broken workflow configuration that would silently stop release syncing.
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "ERROR: GitHub API authentication/authorization failed (HTTP $HTTP_CODE): $(echo "$RESPONSE" | jq -r '.message')"
+            exit 1
+          fi
+
+          # Treat any remaining API errors as transient and skip this run.
           if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
             echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
