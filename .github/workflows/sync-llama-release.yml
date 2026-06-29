@@ -12,6 +12,9 @@ jobs:
       contents: write
       pull-requests: read
 
+    env:
+      UPDATE_NEEDED: "false"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
