@@ -40,24 +40,29 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Check for rate limiting
-          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "::warning::GitHub API rate limit exceeded; skipping this run."
-            exit 0
-          fi
-
-          # Fail loudly on authentication/authorization errors: these indicate a
-          # broken workflow configuration that would silently stop release syncing.
-          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-            echo "ERROR: GitHub API authentication/authorization failed (HTTP $HTTP_CODE): $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
-          fi
-
-          # Treat any remaining API errors as transient and skip this run.
-          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
-            exit 0
-          fi
+          # Decide based on HTTP status before parsing any JSON, so a non-JSON
+          # body (e.g. 5xx or proxy HTML) can't crash the step under `set -e`.
+          case "$HTTP_CODE" in
+            2*) ;;
+            401)
+              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              exit 1
+              ;;
+            403)
+              # 403 covers both permission denials and primary/secondary rate
+              # limits; only fail for genuine permission errors.
+              if echo "$RESPONSE" | grep -qi "rate limit"; then
+                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                exit 0
+              fi
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $(echo "$RESPONSE" | jq -r '.message // empty')"
+              exit 1
+              ;;
+            *)
+              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              exit 0
+              ;;
+          esac
 
           # Extract tag name and validate
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
@@ -114,26 +119,31 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Check for rate limiting
-          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "::warning::GitHub API rate limit exceeded; skipping this run."
-            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
-            exit 0
-          fi
-
-          # Fail loudly on authentication/authorization errors: these indicate a
-          # broken workflow configuration that would silently stop release syncing.
-          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
-            echo "ERROR: GitHub API authentication/authorization failed (HTTP $HTTP_CODE): $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
-          fi
-
-          # Treat any remaining API errors as transient and skip this run.
-          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
-            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
-            exit 0
-          fi
+          # Decide based on HTTP status before parsing any JSON, so a non-JSON
+          # body (e.g. 5xx or proxy HTML) can't crash the step under `set -e`.
+          case "$HTTP_CODE" in
+            2*) ;;
+            401)
+              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              exit 1
+              ;;
+            403)
+              # 403 covers both permission denials and primary/secondary rate
+              # limits; only fail for genuine permission errors.
+              if echo "$RESPONSE" | grep -qi "rate limit"; then
+                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+                exit 0
+              fi
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $(echo "$RESPONSE" | jq -r '.message // empty')"
+              exit 1
+              ;;
+            *)
+              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+              exit 0
+              ;;
+          esac
 
           # Get the SHA256 digest from the release assets
           CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | endswith("-xcframework.zip")) | .digest' | sed 's/sha256://')
