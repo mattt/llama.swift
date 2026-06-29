@@ -38,7 +38,7 @@ jobs:
           case "$HTTP_CODE" in
             2*) ;;
             401)
-              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              echo "::error::GitHub API authentication failed (HTTP 401)."
               exit 1
               ;;
             403)
@@ -65,7 +65,7 @@ jobs:
             exit 0
           fi
 
-          echo "Latest llama.cpp release: $LATEST_RELEASE"
+          echo "::notice::Latest llama.cpp release: $LATEST_RELEASE"
           echo "LATEST_RELEASE=$LATEST_RELEASE" >> $GITHUB_ENV
 
       - name: Check current version in Package.swift
@@ -73,23 +73,23 @@ jobs:
         run: |
           CURRENT_VERSION=$(grep -oP '(?<=llama-)[^/]+(?=-xcframework\.zip)' Package.swift || echo "")
           if [ -z "$CURRENT_VERSION" ]; then
-            echo "ERROR: Could not extract current version from Package.swift. This may indicate a format change or a corrupted file."
+            echo "::error::Could not extract current version from Package.swift. This may indicate a format change or a corrupted file."
             exit 1
           fi
-          echo "Current version in Package.swift: $CURRENT_VERSION"
+          echo "::notice::Current version in Package.swift: $CURRENT_VERSION"
           echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
 
       - name: Compare versions
         id: compare_versions
         run: |
           if [ -z "$LATEST_RELEASE" ]; then
-            echo "Latest release unknown (fetch was skipped). No update."
+            echo "::notice::Latest release unknown (fetch was skipped). No update."
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
           elif [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
-            echo "New release found: $LATEST_RELEASE (current: $CURRENT_VERSION)"
+            echo "::notice::New release found: $LATEST_RELEASE (current: $CURRENT_VERSION)"
             echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
-            echo "No update needed. Current version: $CURRENT_VERSION"
+            echo "::notice::No update needed. Current version: $CURRENT_VERSION"
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
           fi
 
@@ -110,7 +110,7 @@ jobs:
           case "$HTTP_CODE" in
             2*) ;;
             401)
-              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              echo "::error::GitHub API authentication failed (HTTP 401)."
               exit 1
               ;;
             403)
@@ -138,29 +138,30 @@ jobs:
           # yet; skip and retry on the next run.
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
             echo "::warning::xcframework asset not yet available for $LATEST_RELEASE; will retry on the next run."
-            echo "Available assets:"
+            echo "::group::Available assets"
             echo "$RESPONSE" | jq -r '.assets[] | .name'
+            echo "::endgroup::"
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
             exit 0
           fi
 
-          echo "Asset checksum: $CHECKSUM"
+          echo "::notice::Asset checksum: $CHECKSUM"
           echo "CHECKSUM=$CHECKSUM" >> $GITHUB_ENV
 
       - name: Update Package.swift
         if: env.UPDATE_NEEDED == 'true'
         run: |
           CURRENT_VERSION=$(sed -n 's/.*llama-\([^/]*\)-xcframework\.zip.*/\1/p' Package.swift)
-          echo "Current version in Package.swift: $CURRENT_VERSION"
+          echo "::notice::Current version in Package.swift: $CURRENT_VERSION"
 
           # Swap the version in the asset URL, then the checksum.
           sed "s|$CURRENT_VERSION|$LATEST_RELEASE|g" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
 
           CURRENT_CHECKSUM=$(sed -n 's/.*checksum: "\([^"]*\)".*/\1/p' Package.swift)
-          echo "Current checksum: $CURRENT_CHECKSUM"
+          echo "::notice::Current checksum: $CURRENT_CHECKSUM"
           sed "s|$CURRENT_CHECKSUM|$CHECKSUM|" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
 
-          echo "Updated Package.swift with new release $LATEST_RELEASE"
+          echo "::notice::Updated Package.swift with new release $LATEST_RELEASE"
 
       - name: Update README version
         if: env.UPDATE_NEEDED == 'true'
@@ -169,19 +170,20 @@ jobs:
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
           README_VERSION="2.${VERSION_NUMBER}.0"
           sed -i "s|\.upToNextMajor(from: \"[^\"]*\"|\.upToNextMajor(from: \"$README_VERSION\"|" README.md
-          echo "Updated README.md with version $README_VERSION"
+          echo "::notice::Updated README.md with version $README_VERSION"
 
       - name: Verify Package.swift changes
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          echo "Updated Package.swift:"
+          echo "::group::Updated Package.swift"
           cat Package.swift
+          echo "::endgroup::"
 
       - name: Verify package resolution
         if: env.UPDATE_NEEDED == 'true'
         run: |
           if ! swift package resolve; then
-            echo "ERROR: Package resolution failed."
+            echo "::error::Package resolution failed."
             exit 1
           fi
 
@@ -202,4 +204,4 @@ jobs:
           SEMVER_TAG="2.${VERSION_NUMBER}.0"
           git tag "$SEMVER_TAG"
           git push origin "$SEMVER_TAG"
-          echo "Created and pushed tag: $SEMVER_TAG"
+          echo "::notice::Created and pushed tag: $SEMVER_TAG"
