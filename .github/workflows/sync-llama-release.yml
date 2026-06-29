@@ -27,30 +27,30 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
 
-          # Check if the API call was successful
+          # Treat upstream/transient API issues as a no-op so the run stays green.
           if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to fetch latest release from GitHub API"
-            exit 1
+            echo "::warning::Failed to fetch latest release from GitHub API; skipping this run."
+            exit 0
           fi
 
           # Check for rate limiting
           if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "ERROR: GitHub API rate limit exceeded"
-            exit 1
+            echo "::warning::GitHub API rate limit exceeded; skipping this run."
+            exit 0
           fi
 
           # Check for other API errors
           if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
+            echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
+            exit 0
           fi
 
           # Extract tag name and validate
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
-            echo "ERROR: Failed to extract tag_name from API response"
+            echo "::warning::Failed to extract tag_name from API response; skipping this run."
             echo "Response: $RESPONSE"
-            exit 1
+            exit 0
           fi
 
           echo "Latest llama.cpp release: $LATEST_RELEASE"
@@ -70,7 +70,10 @@ jobs:
       - name: Compare versions
         id: compare_versions
         run: |
-          if [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "Latest release unknown (fetch was skipped). No update."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+          elif [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
             echo "New release found: $LATEST_RELEASE (current: $CURRENT_VERSION)"
             echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
@@ -86,33 +89,38 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE")
 
-          # Check if the API call was successful
+          # Treat upstream/transient API issues as a no-op so the run stays green.
           if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to fetch release details from GitHub API"
-            exit 1
+            echo "::warning::Failed to fetch release details from GitHub API; skipping this run."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
           # Check for rate limiting
           if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "ERROR: GitHub API rate limit exceeded"
-            exit 1
+            echo "::warning::GitHub API rate limit exceeded; skipping this run."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
           # Check for other API errors
           if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
+            echo "::warning::GitHub API error: $(echo "$RESPONSE" | jq -r '.message'); skipping this run."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
           # Get the SHA256 digest from the release assets
           CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | endswith("-xcframework.zip")) | .digest' | sed 's/sha256://')
 
-          # Validate checksum was found
+          # The xcframework asset is built asynchronously after a release is
+          # published, so it may not exist yet. Skip and retry on the next run.
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
-            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+            echo "::warning::xcframework asset not yet available for $LATEST_RELEASE; will retry on the next run."
             echo "Available assets:"
             echo "$RESPONSE" | jq -r '.assets[] | .name'
-            exit 1
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
           echo "Asset checksum: $CHECKSUM"
