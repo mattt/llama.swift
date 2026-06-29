@@ -28,7 +28,7 @@ jobs:
           if ! RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/ggml-org/llama.cpp/releases/latest); then
-            echo "::warning::Failed to fetch latest release from GitHub API; skipping this run."
+            echo "Failed to fetch latest release from GitHub API; skipping this run."
             exit 0
           fi
 
@@ -45,26 +45,23 @@ jobs:
               # 403 is used for both rate limits and permission denials;
               # only fail for the latter.
               if echo "$RESPONSE" | grep -qi "rate limit"; then
-                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                echo "GitHub API rate limit hit (HTTP 403); skipping this run."
                 exit 0
               fi
               MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
-              MESSAGE="${MESSAGE//'%'/%25}"; MESSAGE="${MESSAGE//$'\r'/%0D}"; MESSAGE="${MESSAGE//$'\n'/%0A}"
-              echo "::error::GitHub API authorization failed (HTTP 403): $MESSAGE"
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
             *)
-              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              echo "GitHub API returned HTTP $HTTP_CODE; skipping this run."
               exit 0
               ;;
           esac
 
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
-            echo "::warning::Failed to extract tag_name from API response; skipping this run."
-            RESPONSE_LOG=$(echo "$RESPONSE" | jq -c . 2>/dev/null || printf '%s' "$RESPONSE")
-            RESPONSE_LOG="${RESPONSE_LOG//'%'/%25}"; RESPONSE_LOG="${RESPONSE_LOG//$'\r'/%0D}"; RESPONSE_LOG="${RESPONSE_LOG//$'\n'/%0A}"
-            echo "::debug::Response: $RESPONSE_LOG"
+            echo "Failed to extract tag_name from API response; skipping this run."
+            echo "Response: $RESPONSE"
             exit 0
           fi
 
@@ -102,7 +99,7 @@ jobs:
           if ! RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE"); then
-            echo "::warning::Failed to fetch release details from GitHub API; skipping this run."
+            echo "Failed to fetch release details from GitHub API; skipping this run."
             echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
             exit 0
           fi
@@ -120,17 +117,16 @@ jobs:
               # 403 is used for both rate limits and permission denials;
               # only fail for the latter.
               if echo "$RESPONSE" | grep -qi "rate limit"; then
-                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                echo "GitHub API rate limit hit (HTTP 403); skipping this run."
                 echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
                 exit 0
               fi
               MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
-              MESSAGE="${MESSAGE//'%'/%25}"; MESSAGE="${MESSAGE//$'\r'/%0D}"; MESSAGE="${MESSAGE//$'\n'/%0A}"
-              echo "::error::GitHub API authorization failed (HTTP 403): $MESSAGE"
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
             *)
-              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              echo "GitHub API returned HTTP $HTTP_CODE; skipping this run."
               echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
               exit 0
               ;;
@@ -141,7 +137,7 @@ jobs:
           # The xcframework asset is built asynchronously, so it may not exist
           # yet; skip and retry on the next run.
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
-            echo "::warning::xcframework asset not yet available for $LATEST_RELEASE; will retry on the next run."
+            echo "xcframework asset not yet available for $LATEST_RELEASE; will retry on the next run."
             echo "::group::Available assets"
             echo "$RESPONSE" | jq -r '.assets[] | .name'
             echo "::endgroup::"
