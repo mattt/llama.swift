@@ -49,6 +49,7 @@ jobs:
                 exit 0
               fi
               MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              MESSAGE="${MESSAGE//'%'/%25}"; MESSAGE="${MESSAGE//$'\r'/%0D}"; MESSAGE="${MESSAGE//$'\n'/%0A}"
               echo "::error::GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
@@ -61,7 +62,9 @@ jobs:
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
             echo "::warning::Failed to extract tag_name from API response; skipping this run."
-            echo "::debug::Response: $(echo "$RESPONSE" | jq -c . 2>/dev/null || echo "$RESPONSE" | tr '\n' ' ')"
+            RESPONSE_LOG=$(echo "$RESPONSE" | jq -c . 2>/dev/null || printf '%s' "$RESPONSE")
+            RESPONSE_LOG="${RESPONSE_LOG//'%'/%25}"; RESPONSE_LOG="${RESPONSE_LOG//$'\r'/%0D}"; RESPONSE_LOG="${RESPONSE_LOG//$'\n'/%0A}"
+            echo "::debug::Response: $RESPONSE_LOG"
             exit 0
           fi
 
@@ -122,6 +125,7 @@ jobs:
                 exit 0
               fi
               MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              MESSAGE="${MESSAGE//'%'/%25}"; MESSAGE="${MESSAGE//$'\r'/%0D}"; MESSAGE="${MESSAGE//$'\n'/%0A}"
               echo "::error::GitHub API authorization failed (HTTP 403): $MESSAGE"
               exit 1
               ;;
