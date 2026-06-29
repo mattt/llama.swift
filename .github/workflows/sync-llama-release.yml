@@ -61,7 +61,7 @@ jobs:
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
             echo "::warning::Failed to extract tag_name from API response; skipping this run."
-            echo "::debug::Response: $RESPONSE"
+            echo "::debug::Response: $(echo "$RESPONSE" | jq -c . 2>/dev/null || echo "$RESPONSE" | tr '\n' ' ')"
             exit 0
           fi
 
