@@ -16,14 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - swift: "6.0"
-            xcode: "16.0"
-            runs-on: macos-15
-          - swift: "6.1"
-            xcode: "16.3"
-            runs-on: macos-15
-          - swift: "6.2"
-            xcode: "26.0"
+          - swift: "6.3"
+            xcode: "26.5"
             runs-on: macos-26
     timeout-minutes: 10
     steps:
