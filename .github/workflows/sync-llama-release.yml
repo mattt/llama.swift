@@ -12,9 +12,12 @@ jobs:
       contents: write
       pull-requests: read
 
+    env:
+      UPDATE_NEEDED: "false"
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -22,35 +25,44 @@ jobs:
       - name: Fetch latest llama.cpp release
         id: fetch_release
         run: |
-          # Fetch latest release with authentication and error handling
-          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          if ! RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/ggml-org/llama.cpp/releases/latest)
-
-          # Check if the API call was successful
-          if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to fetch latest release from GitHub API"
-            exit 1
+            https://api.github.com/repos/ggml-org/llama.cpp/releases/latest); then
+            echo "::warning::Failed to fetch latest release from GitHub API; skipping this run."
+            exit 0
           fi
 
-          # Check for rate limiting
-          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "ERROR: GitHub API rate limit exceeded"
-            exit 1
-          fi
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Check for other API errors
-          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
-          fi
+          case "$HTTP_CODE" in
+            2*) ;;
+            401)
+              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              exit 1
+              ;;
+            403)
+              # 403 is used for both rate limits and permission denials;
+              # only fail for the latter.
+              if echo "$RESPONSE" | grep -qi "rate limit"; then
+                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                exit 0
+              fi
+              MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
+              exit 1
+              ;;
+            *)
+              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              exit 0
+              ;;
+          esac
 
-          # Extract tag name and validate
           LATEST_RELEASE=$(echo "$RESPONSE" | jq -r '.tag_name')
           if [ "$LATEST_RELEASE" = "null" ] || [ -z "$LATEST_RELEASE" ]; then
-            echo "ERROR: Failed to extract tag_name from API response"
+            echo "::warning::Failed to extract tag_name from API response; skipping this run."
             echo "Response: $RESPONSE"
-            exit 1
+            exit 0
           fi
 
           echo "Latest llama.cpp release: $LATEST_RELEASE"
@@ -70,7 +82,10 @@ jobs:
       - name: Compare versions
         id: compare_versions
         run: |
-          if [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "Latest release unknown (fetch was skipped). No update."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+          elif [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
             echo "New release found: $LATEST_RELEASE (current: $CURRENT_VERSION)"
             echo "UPDATE_NEEDED=true" >> $GITHUB_ENV
           else
@@ -81,38 +96,52 @@ jobs:
       - name: Get release asset checksum
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Get release details with authentication and error handling
-          RESPONSE=$(curl -sL -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          if ! RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE")
-
-          # Check if the API call was successful
-          if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to fetch release details from GitHub API"
-            exit 1
+            "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LATEST_RELEASE"); then
+            echo "::warning::Failed to fetch release details from GitHub API; skipping this run."
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
-          # Check for rate limiting
-          if echo "$RESPONSE" | jq -e '.message' | grep -q "API rate limit exceeded"; then
-            echo "ERROR: GitHub API rate limit exceeded"
-            exit 1
-          fi
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Check for other API errors
-          if echo "$RESPONSE" | jq -e '.message' > /dev/null; then
-            echo "ERROR: GitHub API error: $(echo "$RESPONSE" | jq -r '.message')"
-            exit 1
-          fi
+          case "$HTTP_CODE" in
+            2*) ;;
+            401)
+              echo "ERROR: GitHub API authentication failed (HTTP 401)."
+              exit 1
+              ;;
+            403)
+              # 403 is used for both rate limits and permission denials;
+              # only fail for the latter.
+              if echo "$RESPONSE" | grep -qi "rate limit"; then
+                echo "::warning::GitHub API rate limit hit (HTTP 403); skipping this run."
+                echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+                exit 0
+              fi
+              MESSAGE=$(echo "$RESPONSE" | jq -r '.message // empty' 2>/dev/null || true)
+              echo "ERROR: GitHub API authorization failed (HTTP 403): $MESSAGE"
+              exit 1
+              ;;
+            *)
+              echo "::warning::GitHub API returned HTTP $HTTP_CODE; skipping this run."
+              echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+              exit 0
+              ;;
+          esac
 
-          # Get the SHA256 digest from the release assets
           CHECKSUM=$(echo "$RESPONSE" | jq -r '.assets[] | select(.name | endswith("-xcframework.zip")) | .digest' | sed 's/sha256://')
 
-          # Validate checksum was found
+          # The xcframework asset is built asynchronously, so it may not exist
+          # yet; skip and retry on the next run.
           if [ -z "$CHECKSUM" ] || [ "$CHECKSUM" = "null" ]; then
-            echo "ERROR: Failed to retrieve checksum for release asset. The 'digest' field is missing or empty."
+            echo "::warning::xcframework asset not yet available for $LATEST_RELEASE; will retry on the next run."
             echo "Available assets:"
             echo "$RESPONSE" | jq -r '.assets[] | .name'
-            exit 1
+            echo "UPDATE_NEEDED=false" >> $GITHUB_ENV
+            exit 0
           fi
 
           echo "Asset checksum: $CHECKSUM"
@@ -121,14 +150,12 @@ jobs:
       - name: Update Package.swift
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Extract current version from Package.swift using sed
           CURRENT_VERSION=$(sed -n 's/.*llama-\([^/]*\)-xcframework\.zip.*/\1/p' Package.swift)
           echo "Current version in Package.swift: $CURRENT_VERSION"
 
-          # Update the URL by replacing the current version with the new one
+          # Swap the version in the asset URL, then the checksum.
           sed "s|$CURRENT_VERSION|$LATEST_RELEASE|g" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
 
-          # Update the checksum - find the current checksum and replace it
           CURRENT_CHECKSUM=$(sed -n 's/.*checksum: "\([^"]*\)".*/\1/p' Package.swift)
           echo "Current checksum: $CURRENT_CHECKSUM"
           sed "s|$CURRENT_CHECKSUM|$CHECKSUM|" Package.swift > Package.swift.tmp && mv Package.swift.tmp Package.swift
@@ -138,8 +165,7 @@ jobs:
       - name: Update README version
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Update the version in README.md installation example
-          # Convert release tag to version format (e.g., b6816 -> 2.6816.0)
+          # Convert release tag to semver (e.g. b6816 -> 2.6816.0).
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
           README_VERSION="2.${VERSION_NUMBER}.0"
           sed -i "s|\.upToNextMajor(from: \"[^\"]*\"|\.upToNextMajor(from: \"$README_VERSION\"|" README.md
@@ -171,7 +197,7 @@ jobs:
       - name: Create and push tag
         if: env.UPDATE_NEEDED == 'true'
         run: |
-          # Convert release tag to semver format (e.g., b7502 -> 2.7502.0)
+          # Convert release tag to semver (e.g. b7502 -> 2.7502.0).
           VERSION_NUMBER=$(echo "$LATEST_RELEASE" | sed 's/^b//')
           SEMVER_TAG="2.${VERSION_NUMBER}.0"
           git tag "$SEMVER_TAG"
