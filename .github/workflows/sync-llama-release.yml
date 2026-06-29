@@ -25,8 +25,6 @@ jobs:
       - name: Fetch latest llama.cpp release
         id: fetch_release
         run: |
-          # Assign inside `if` so a transient transport failure skips the run
-          # rather than aborting under `set -e`.
           if ! RESPONSE=$(curl -sL -w $'\n%{http_code}' -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/ggml-org/llama.cpp/releases/latest); then
@@ -37,8 +35,6 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Classify by HTTP status before parsing JSON, so a non-JSON body
-          # (e.g. 5xx or proxy HTML) can't crash the step under `set -e`.
           case "$HTTP_CODE" in
             2*) ;;
             401)
@@ -111,8 +107,6 @@ jobs:
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
           RESPONSE=$(echo "$RESPONSE" | sed '$d')
 
-          # Classify by HTTP status before parsing JSON, so a non-JSON body
-          # (e.g. 5xx or proxy HTML) can't crash the step under `set -e`.
           case "$HTTP_CODE" in
             2*) ;;
             401)
