@@ -17,8 +17,11 @@ jobs:
       matrix:
         include:
           - swift: "6.3"
-            xcode: "26.5"
+            xcode: "26.6"
             runs-on: macos-26
+          - swift: "6.4"
+            xcode: "27.0"
+            runs-on: xcode-27
     timeout-minutes: 10
     steps:
       - name: Checkout code
@@ -30,9 +33,9 @@ jobs:
           path: |
             ~/.cache/org.swift.swiftpm
             .build
-          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved') }}
+          key: ${{ runner.os }}-swift-${{ matrix.swift }}-spm-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
-            ${{ runner.os }}-spm-
+            ${{ runner.os }}-swift-${{ matrix.swift }}-spm-
 
       - name: Build
         run: swift build -v
