@@ -36,6 +36,8 @@
 #                      Default: https://api.github.com/repos/ggml-org/llama.cpp
 #   SYNC_REMOTE        Optional. Remote to fetch from and push to. Default: origin
 #   SYNC_BRANCH        Optional. Branch to push to. Default: main
+#   SYNC_RETRY_DELAY   Optional. Seconds before the first retry of a git
+#                      transport failure; later retries wait longer. Default: 10
 #
 # Requires: bash 3.2 or later, git, curl, jq, and shasum or sha256sum.
 
@@ -50,6 +52,8 @@ readonly NIGHTLY_TAG_GRACE_SECONDS=3600
 API_URL="${LLAMA_CPP_API_URL:-https://api.github.com/repos/ggml-org/llama.cpp}"
 REMOTE="${SYNC_REMOTE:-origin}"
 BRANCH="${SYNC_BRANCH:-main}"
+RETRY_DELAY="${SYNC_RETRY_DELAY:-10}"
+readonly GIT_ATTEMPTS=3
 DRY_RUN=false
 
 usage() {
@@ -125,9 +129,18 @@ request() {
         fi
     fi
 
-    if ! code="$(curl "${args[@]}" "$url")"; then
-        skip "Request failed: $url"
-    fi
+    local status=0
+    code="$(curl "${args[@]}" "$url")" || status=$?
+    case "$status" in
+        0) ;;
+        # Name resolution, connection, timeout, TLS handshake, and
+        # transfer errors can pass; other errors, such as a malformed URL,
+        # an unsupported protocol, or a certificate problem, will not.
+        5 | 6 | 7 | 16 | 18 | 28 | 35 | 52 | 55 | 56 | 92)
+            skip "Request failed (curl exit $status): $url"
+            ;;
+        *) fail "Request failed (curl exit $status): $url" ;;
+    esac
 
     case "$code" in
         2??) return 0 ;;
@@ -144,6 +157,32 @@ request() {
         5??) skip "Server error (HTTP $code) for $url" ;;
         *) fail "Unexpected response (HTTP $code) for $url" ;;
     esac
+}
+
+# Run a git command that talks to the remote.
+# Retries transport failures, then fails.
+# Fails at once for configuration problems and ref conflicts.
+remote_git() {
+    local attempt=1 err="$WORK_DIR/git-stderr" last
+    while true; do
+        if git "$@" 2>"$err"; then
+            return 0
+        fi
+        cat "$err" >&2
+        last="$(grep -v '^[[:space:]]*$' "$err" | tail -n 1 || true)"
+        if grep -qiE "would clobber|\[rejected\]|couldn't find remote ref|does not appear to be a git repository|repository .* not found|authentication failed|permission denied|invalid refspec|not a valid ref" "$err"; then
+            fail "git $1 failed: $last"
+        fi
+        if ! grep -qiE "could not resolve host|failed to connect|couldn't connect|connection (timed out|refused|reset)|operation timed out|early eof|rpc failed|unexpected disconnect|the remote end hung up|returned error: (5[0-9][0-9]|429)|ssl|tls|empty reply|transfer closed" "$err"; then
+            fail "git $1 failed: $last"
+        fi
+        if [ "$attempt" -ge "$GIT_ATTEMPTS" ]; then
+            fail "git $1 failed after $attempt attempts: $last"
+        fi
+        echo "::warning::git $1 failed (attempt $attempt of $GIT_ATTEMPTS); retrying."
+        sleep "$((RETRY_DELAY * attempt))"
+        attempt=$((attempt + 1))
+    done
 }
 
 # Exit status 0 when version $1 is lower than version $2.
@@ -233,9 +272,9 @@ fi
 
 # MARK: - Read the current state
 
-if ! git fetch --quiet --tags "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH"; then
-    skip "Could not fetch tags from $REMOTE"
-fi
+[[ "$RETRY_DELAY" =~ ^[0-9]+$ ]] || fail "SYNC_RETRY_DELAY must be a whole number of seconds."
+git remote get-url "$REMOTE" >/dev/null 2>&1 || fail "Remote $REMOTE is not configured."
+remote_git fetch --tags "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRANCH"
 
 # Prints "<version> <xcframework url> <checksum>" for a Package.swift file,
 # with "-" for each value that is absent.
@@ -417,5 +456,5 @@ if [ "$tag_ok" = false ]; then
     notice "Created tag $mapped_version."
 fi
 
-git push --atomic "$REMOTE" "${refspecs[@]}" || fail "Could not push ${refspecs[*]} to $REMOTE."
+remote_git push --atomic "$REMOTE" "${refspecs[@]}"
 notice "Pushed ${refspecs[*]} to $REMOTE."
