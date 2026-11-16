@@ -252,7 +252,11 @@ state="$(package_state Package.swift)" ||
 read -r current_version current_url current_checksum <<<"$state"
 [ "$current_url" != "-" ] || fail "Could not find the XCFramework URL in Package.swift."
 [ "$current_checksum" != "-" ] || fail "Could not find the XCFramework checksum in Package.swift."
-notice "Package.swift: llama.cpp ${current_version/#-/unknown version}, $current_url"
+if [ "$current_version" = "-" ]; then
+    notice "Package.swift: no recorded llama.cpp version, $current_url"
+else
+    notice "Package.swift: llama.cpp v$current_version, $current_url"
+fi
 
 if [ "$current_version" != "-" ] && version_lt "$upstream_version" "$current_version"; then
     fail "Package.swift records llama.cpp v$current_version, which is newer than the latest release $version_tag."
@@ -291,7 +295,7 @@ if git rev-parse --quiet --verify "refs/tags/$mapped_version^{commit}" >/dev/nul
     read -r tagged_version tagged_url tagged_checksum <<<"$state"
     if [ "$tagged_url" != "$asset_url" ] ||
         { [ -n "$asset_digest" ] && [ "$tagged_checksum" != "$asset_digest" ]; }; then
-        fail "Tag $mapped_version exists but names $tagged_url (llama.cpp ${tagged_version/#-/unknown version}), not $asset_url. Tags cannot be moved."
+        fail "Tag $mapped_version exists but names $tagged_url (recorded llama.cpp version: $tagged_version), not $asset_url. Tags cannot be moved."
     fi
     tag_ok=true
 fi
