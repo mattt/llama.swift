@@ -94,13 +94,15 @@ for tool in git curl jq; do
     command -v "$tool" >/dev/null 2>&1 || fail "Required tool not found: $tool"
 done
 
+# Prints the SHA-256 checksum of a file. Returns failure when no tool can.
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | cut -d ' ' -f 1
     elif command -v shasum >/dev/null 2>&1; then
         shasum -a 256 "$1" | cut -d ' ' -f 1
     else
-        fail "Required tool not found: sha256sum or shasum"
+        echo "Required tool not found: sha256sum or shasum" >&2
+        return 1
     fi
 }
 
@@ -282,11 +284,40 @@ if [ "$(git rev-parse HEAD)" != "$remote_head" ]; then
     fi
 fi
 
+# MARK: - Determine the expected checksum
+
+archive="$WORK_DIR/$asset_name"
+downloaded_checksum=""
+
+# Downloads the asset once and checks its bytes against the API digest.
+download_asset() {
+    [ -z "$downloaded_checksum" ] || return 0
+    request "$asset_url" "$archive"
+    downloaded_checksum="$(sha256_of "$archive")" ||
+        fail "Could not compute the checksum of $asset_name."
+    [[ "$downloaded_checksum" =~ $CHECKSUM_PATTERN ]] ||
+        fail "Could not compute the checksum of $asset_name."
+    if [ -n "$asset_digest" ] && [ "$downloaded_checksum" != "$asset_digest" ]; then
+        fail "Checksum of the downloaded $asset_name is $downloaded_checksum, but GitHub reports $asset_digest."
+    fi
+    notice "Checksum of $asset_name: $downloaded_checksum"
+}
+
+# Without an API digest, only the bytes can show
+# whether a manifest's checksum is right.
+if [ -n "$asset_digest" ]; then
+    expected_checksum="$asset_digest"
+else
+    notice "GitHub reports no digest for $asset_name; downloading it to compute the checksum."
+    download_asset
+    expected_checksum="$downloaded_checksum"
+fi
+
 # MARK: - Plan
 
 package_ok=false
 if [ "$current_version" = "$upstream_version" ] && [ "$current_url" = "$asset_url" ] &&
-    { [ -z "$asset_digest" ] || [ "$current_checksum" = "$asset_digest" ]; }; then
+    [ "$current_checksum" = "$expected_checksum" ]; then
     package_ok=true
 fi
 
@@ -297,9 +328,11 @@ if git rev-parse --quiet --verify "refs/tags/$mapped_version^{commit}" >/dev/nul
     state="$(package_state "$WORK_DIR/tagged-Package.swift")" ||
         fail "Package.swift at tag $mapped_version has more than one XCFramework URL, checksum, or version comment."
     read -r tagged_version tagged_url tagged_checksum <<<"$state"
-    if [ "$tagged_url" != "$asset_url" ] ||
-        { [ -n "$asset_digest" ] && [ "$tagged_checksum" != "$asset_digest" ]; }; then
+    if [ "$tagged_url" != "$asset_url" ]; then
         fail "Tag $mapped_version exists but names $tagged_url (recorded llama.cpp version: $tagged_version), not $asset_url. Tags cannot be moved."
+    fi
+    if [ "$tagged_checksum" != "$expected_checksum" ]; then
+        fail "Tag $mapped_version exists but its Package.swift has checksum $tagged_checksum, not $expected_checksum for $asset_name. Tags cannot be moved."
     fi
     tag_ok=true
 fi
@@ -313,16 +346,10 @@ fi
 
 new_package="$WORK_DIR/Package.swift"
 if [ "$package_ok" = false ]; then
-    # Download the asset and check its bytes, because SwiftPM checks the
-    # checksum only when a client resolves the package.
-    archive="$WORK_DIR/$asset_name"
-    request "$asset_url" "$archive"
-    checksum="$(sha256_of "$archive")"
-    if [ -n "$asset_digest" ] && [ "$checksum" != "$asset_digest" ]; then
-        fail "Checksum of the downloaded $asset_name is $checksum, but GitHub reports $asset_digest."
-    fi
-    [[ "$checksum" =~ $CHECKSUM_PATTERN ]] || fail "Could not compute the checksum of $asset_name."
-    notice "Checksum of $asset_name: $checksum"
+    # Check the bytes before writing a checksum, because SwiftPM checks it
+    # only when a client resolves the package.
+    download_asset
+    checksum="$downloaded_checksum"
 
     # Replace the version comment, URL, and checksum of the binary target.
     awk -v comment="// llama.cpp $version_tag ($nightly_tag)" \
