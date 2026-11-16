@@ -29,6 +29,11 @@
 #   --dry-run  Read the releases and report what would change,
 #              including a diff of Package.swift.
 #              Do not change files, commit, tag, or push.
+#              With uncommitted changes, report the plan for HEAD
+#              and warn that a run without --dry-run would stop.
+#
+# The script reads Package.swift from HEAD, the commit it tags,
+# and a run without --dry-run requires no changes in the index or working tree.
 #
 # Environment:
 #   GITHUB_TOKEN       Optional. Token for GitHub API requests.
@@ -53,6 +58,8 @@ readonly MAPPED_MAJOR_OFFSET=2
 # so a release can briefly exist without it.
 readonly NIGHTLY_TAG_GRACE_SECONDS=3600
 
+# If the upstream repository moves, change both URLs together:
+# release asset URLs must equal <DOWNLOAD_URL>/<tag>/<name>.
 API_URL="${LLAMA_CPP_API_URL:-https://api.github.com/repos/ggml-org/llama.cpp}"
 DOWNLOAD_URL="${LLAMA_CPP_DOWNLOAD_URL:-https://github.com/ggml-org/llama.cpp/releases/download}"
 REMOTE="${SYNC_REMOTE:-origin}"
@@ -214,7 +221,18 @@ readonly CHECKSUM_PATTERN='^[0-9a-f]{64}$'
 
 repo_root="$(git rev-parse --show-toplevel)" || fail "Not in a git repository."
 cd "$repo_root"
-[ -f Package.swift ] || fail "Package.swift not found in $repo_root"
+git cat-file -e HEAD:Package.swift 2>/dev/null || fail "Package.swift not found at HEAD in $repo_root"
+
+# A tag names a commit, so the plan uses the committed Package.swift.
+# Changes in the index or working tree would not be in that commit.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    if [ "$DRY_RUN" = true ]; then
+        echo "::warning::The index or working tree has changes; this plan uses Package.swift at HEAD, and a run without --dry-run would stop here."
+    else
+        git status --short --untracked-files=no
+        fail "The index or working tree has changes. Commit or discard them before you run this script."
+    fi
+fi
 
 # MARK: - Read the latest version release
 
@@ -344,15 +362,17 @@ package_state() {
     echo "${version:--} ${url:--} ${checksum:--}"
 }
 
-state="$(package_state Package.swift)" ||
-    fail "Package.swift has more than one XCFramework URL, checksum, or version comment."
+head_package="$WORK_DIR/HEAD-Package.swift"
+git show HEAD:Package.swift >"$head_package" || fail "Could not read Package.swift at HEAD."
+state="$(package_state "$head_package")" ||
+    fail "Package.swift at HEAD has more than one XCFramework URL, checksum, or version comment."
 read -r current_version current_url current_checksum <<<"$state"
-[ "$current_url" != "-" ] || fail "Could not find the XCFramework URL in Package.swift."
-[ "$current_checksum" != "-" ] || fail "Could not find the XCFramework checksum in Package.swift."
+[ "$current_url" != "-" ] || fail "Could not find the XCFramework URL in Package.swift at HEAD."
+[ "$current_checksum" != "-" ] || fail "Could not find the XCFramework checksum in Package.swift at HEAD."
 if [ "$current_version" = "-" ]; then
-    notice "Package.swift: no recorded llama.cpp version, $current_url"
+    notice "Package.swift at HEAD: no recorded llama.cpp version, $current_url"
 else
-    notice "Package.swift: llama.cpp v$current_version, $current_url"
+    notice "Package.swift at HEAD: llama.cpp v$current_version, $current_url"
 fi
 
 if [ "$current_version" != "-" ] && version_lt "$upstream_version" "$current_version"; then
@@ -481,7 +501,7 @@ if [ "$package_ok" = false ]; then
             next
         }
         { print }
-    ' Package.swift >"$new_package" || fail "Could not rewrite Package.swift."
+    ' "$head_package" >"$new_package" || fail "Could not rewrite Package.swift."
 
     state="$(package_state "$new_package")" ||
         fail "The rewritten Package.swift has more than one XCFramework URL, checksum, or version comment."
@@ -492,7 +512,7 @@ if [ "$package_ok" = false ]; then
     fi
 
     echo "::group::Package.swift changes"
-    diff -u Package.swift "$new_package" || true
+    diff -u --label "a/Package.swift (HEAD)" --label "b/Package.swift" "$head_package" "$new_package" || true
     echo "::endgroup::"
 fi
 
