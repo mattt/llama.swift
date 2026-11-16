@@ -33,7 +33,7 @@ jobs:
           path: |
             ~/.cache/org.swift.swiftpm
             .build
-          key: ${{ runner.os }}-swift-${{ matrix.swift }}-spm-${{ hashFiles('**/Package.resolved') }}
+          key: ${{ runner.os }}-swift-${{ matrix.swift }}-spm-${{ hashFiles('Package.swift', '**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-swift-${{ matrix.swift }}-spm-
 
@@ -42,3 +42,12 @@ jobs:
 
       - name: Test
         run: swift test -v
+
+      # The upstream XCFramework has slices only for macOS and iOS devices.
+      - name: Build for iOS devices
+        run: |
+          xcodebuild build \
+            -scheme llama.swift \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO
