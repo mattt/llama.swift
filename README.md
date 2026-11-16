@@ -124,6 +124,51 @@ In `mtmd.h`, `mtmd_gen_audio_process` takes a `mtmd_gen_state *`
 as its second argument;
 create one with `mtmd_gen_state_init` and free it with `mtmd_gen_state_free`.
 
+These types also change in ways that can break source code:
+
+- `llama_context_params` no longer has `defrag_thold`,
+  which the header at `b10549` already marked as deprecated.
+  Remove any assignment to it.
+- `mtmd_helper_post_decode_callback` receives
+  a `const struct mtmd_helper_embd_batch *`
+  instead of a `struct llama_batch`.
+  The new struct has the decoded embeddings, their positions,
+  and the sequence ID.
+- `mtmd_gen_inp` no longer has `seed`, `state_data`, or `state_size`,
+  and it has the new fields `penalty_repeat` and `penalty_last_n`.
+  `mtmd_gen_out` no longer has `state_data` or `state_size`.
+  Set the seed in the `mtmd_gen_state_params`
+  that you pass to `mtmd_gen_state_init`.
+  Keep that `mtmd_gen_state` for the whole generation
+  and pass it to each `mtmd_gen_audio_process` call,
+  instead of passing state data from one call to the next.
+- Several structs have new fields, including `llama_model_params`,
+  `llama_context_params`, `llama_model_quantize_params`,
+  `llama_perf_context_data`, `mtmd_caps`, `mtmd_gen_audio_info`,
+  `mtmd_helper_gen_audio_inp`, and `mtmd_helper_video_init_params`.
+  Swift code that calls the full memberwise initializer of one of these structs
+  must add the new arguments.
+  Code that starts from a function such as `llama_context_default_params()`
+  needs no change.
+
+### Saved state
+
+`LLAMA_SESSION_VERSION` changes from 9 to 11,
+and `LLAMA_STATE_SEQ_VERSION` changes from 2 to 4.
+In llama.cpp `v1.0.0`, `llama_state_load_file` and `llama_state_seq_load_file`
+accept only files with the current version,
+so they do not load session or sequence files saved with llama.swift 2.x.
+`llama_state_load_file` returns `false`,
+and `llama_state_seq_load_file` returns 0.
+
+The buffers from `llama_state_get_data` and `llama_state_seq_get_data`
+have no version number,
+but both version changes changed the KV cache data in them
+([ggml-org/llama.cpp#27762](https://github.com/ggml-org/llama.cpp/pull/27762)
+and [ggml-org/llama.cpp#28498](https://github.com/ggml-org/llama.cpp/pull/28498)).
+Do not restore buffers saved with llama.swift 2.x.
+Process the prompt again to create new state.
+
 ## Usage
 
 ```swift
