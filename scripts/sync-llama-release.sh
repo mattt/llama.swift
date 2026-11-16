@@ -164,13 +164,14 @@ request() {
     esac
 }
 
-# Run a git command that talks to the remote.
+# Run a git command that talks to the remote,
+# and write its standard output to $WORK_DIR/git-stdout.
 # Retries transport failures, then fails.
 # Fails at once for configuration problems and ref conflicts.
 remote_git() {
     local attempt=1 err="$WORK_DIR/git-stderr" last
     while true; do
-        if git "$@" 2>"$err"; then
+        if git "$@" >"$WORK_DIR/git-stdout" 2>"$err"; then
             return 0
         fi
         cat "$err" >&2
@@ -358,8 +359,12 @@ if [ "$current_version" != "-" ] && version_lt "$upstream_version" "$current_ver
     fail "Package.swift records llama.cpp v$current_version, which is newer than the latest release $version_tag."
 fi
 
-newest_tag="$(git tag --list | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' |
-    sort -t . -k 1,1n -k 2,2n -k 3,3n | tail -n 1 || true)"
+# Read tags from the remote, because a local tag may be unpublished
+# after a failed push.
+remote_git ls-remote --tags --refs "$REMOTE"
+cp "$WORK_DIR/git-stdout" "$WORK_DIR/remote-tags" || fail "Could not save the remote tags."
+newest_tag="$(sed -n 's|^[0-9a-f]*[[:space:]]refs/tags/||p' "$WORK_DIR/remote-tags" |
+    grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t . -k 1,1n -k 2,2n -k 3,3n | tail -n 1 || true)"
 if [ -n "$newest_tag" ] && version_lt "$mapped_version" "$newest_tag"; then
     fail "$version_tag maps to $mapped_version, which is lower than the newest tag $newest_tag."
 fi
@@ -412,7 +417,13 @@ if [ "$current_version" = "$upstream_version" ] && [ "$current_url" = "$asset_ur
 fi
 
 tag_ok=false
-if git rev-parse --quiet --verify "refs/tags/$mapped_version^{commit}" >/dev/null; then
+tag_local_only=false
+remote_tag_sha="$(awk -v ref="refs/tags/$mapped_version" '$2 == ref { print $1 }' "$WORK_DIR/remote-tags")"
+local_tag_sha="$(git rev-parse --quiet --verify "refs/tags/$mapped_version" || true)"
+if [ -n "$remote_tag_sha" ]; then
+    if [ "$local_tag_sha" != "$remote_tag_sha" ]; then
+        fail "Tag $mapped_version on $REMOTE is $remote_tag_sha, but the local tag is ${local_tag_sha:-missing}."
+    fi
     git show "refs/tags/$mapped_version:Package.swift" >"$WORK_DIR/tagged-Package.swift" ||
         fail "Tag $mapped_version has no Package.swift."
     state="$(package_state "$WORK_DIR/tagged-Package.swift")" ||
@@ -425,6 +436,15 @@ if git rev-parse --quiet --verify "refs/tags/$mapped_version^{commit}" >/dev/nul
         fail "Tag $mapped_version exists but its Package.swift has checksum $tagged_checksum, not $expected_checksum for $asset_name. Tags cannot be moved."
     fi
     tag_ok=true
+elif [ -n "$local_tag_sha" ]; then
+    # An earlier run in this checkout created the tag but did not push it.
+    # Push it only if it is on HEAD and HEAD has the right Package.swift.
+    if [ "$package_ok" = true ] &&
+        [ "$(git rev-parse "refs/tags/$mapped_version^{commit}")" = "$(git rev-parse HEAD)" ]; then
+        tag_local_only=true
+    else
+        fail "Tag $mapped_version exists locally but not on $REMOTE, and it is not on a HEAD with the right Package.swift. Delete it with 'git tag -d $mapped_version' and run again."
+    fi
 fi
 
 if [ "$package_ok" = true ] && [ "$tag_ok" = true ]; then
@@ -479,8 +499,11 @@ fi
 if [ "$DRY_RUN" = true ]; then
     [ "$package_ok" = false ] &&
         notice "Dry run: would update Package.swift to $nightly_tag for $version_tag and commit it to $BRANCH."
-    [ "$tag_ok" = false ] &&
+    if [ "$tag_local_only" = true ]; then
+        notice "Dry run: would push the existing local tag $mapped_version to $REMOTE."
+    elif [ "$tag_ok" = false ]; then
         notice "Dry run: would create tag $mapped_version and push it to $REMOTE."
+    fi
     exit 0
 fi
 
@@ -501,7 +524,10 @@ if [ "$package_ok" = false ]; then
     notice "Committed Package.swift for $version_tag ($nightly_tag)."
 fi
 
-if [ "$tag_ok" = false ]; then
+if [ "$tag_local_only" = true ]; then
+    refspecs+=("refs/tags/$mapped_version")
+    notice "Pushing the existing local tag $mapped_version."
+elif [ "$tag_ok" = false ]; then
     git tag "$mapped_version" HEAD || fail "Could not create tag $mapped_version."
     refspecs+=("refs/tags/$mapped_version")
     notice "Created tag $mapped_version."
