@@ -171,9 +171,11 @@ cd "$repo_root"
 # MARK: - Read the latest version release
 
 request "$API_URL/releases/latest" "$WORK_DIR/latest.json" api
+jq -e 'type == "object"' "$WORK_DIR/latest.json" >/dev/null 2>&1 ||
+    fail "The latest release response is not a JSON object."
 
 version_tag="$(jq -r '.tag_name // empty' "$WORK_DIR/latest.json")"
-[ -n "$version_tag" ] || skip "The latest release response has no tag_name"
+[ -n "$version_tag" ] || fail "The latest release response has no tag_name."
 
 if ! [[ "$version_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||
     ! [[ "${BASH_REMATCH[1]}" =~ $SEMVER_PATTERN ]]; then
@@ -204,6 +206,8 @@ notice "Nightly build for $version_tag: $nightly_tag"
 # MARK: - Read the nightly release's XCFramework
 
 request "$API_URL/releases/tags/$nightly_tag" "$WORK_DIR/nightly.json" api
+jq -e 'type == "object"' "$WORK_DIR/nightly.json" >/dev/null 2>&1 ||
+    fail "The response for nightly release $nightly_tag is not a JSON object."
 
 asset_name="llama-$nightly_tag-xcframework.zip"
 asset_url="$(jq -r --arg name "$asset_name" \
