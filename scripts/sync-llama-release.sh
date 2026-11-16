@@ -34,6 +34,10 @@
 #   GITHUB_TOKEN       Optional. Token for GitHub API requests.
 #   LLAMA_CPP_API_URL  Optional. API URL of the llama.cpp repository.
 #                      Default: https://api.github.com/repos/ggml-org/llama.cpp
+#   LLAMA_CPP_DOWNLOAD_URL
+#                      Optional. Base URL of llama.cpp release downloads.
+#                      Release asset URLs must equal <base>/<tag>/<name>.
+#                      Default: https://github.com/ggml-org/llama.cpp/releases/download
 #   SYNC_REMOTE        Optional. Remote to fetch from and push to. Default: origin
 #   SYNC_BRANCH        Optional. Branch to push to. Default: main
 #   SYNC_RETRY_DELAY   Optional. Seconds before the first retry of a git
@@ -50,6 +54,7 @@ readonly MAPPED_MAJOR_OFFSET=2
 readonly NIGHTLY_TAG_GRACE_SECONDS=3600
 
 API_URL="${LLAMA_CPP_API_URL:-https://api.github.com/repos/ggml-org/llama.cpp}"
+DOWNLOAD_URL="${LLAMA_CPP_DOWNLOAD_URL:-https://github.com/ggml-org/llama.cpp/releases/download}"
 REMOTE="${SYNC_REMOTE:-origin}"
 BRANCH="${SYNC_BRANCH:-main}"
 RETRY_DELAY="${SYNC_RETRY_DELAY:-10}"
@@ -202,7 +207,8 @@ readonly SEMVER_PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 # (^|-)b[0-9]+(-[0-9a-f]{7})?$; tags from branches other than master
 # have a branch prefix and a commit suffix.
 readonly NIGHTLY_PATTERN='^([A-Za-z0-9._]+-)*b[0-9]+(-[0-9a-f]{7})?$'
-readonly URL_PATTERN='^https://[A-Za-z0-9._~/%-]+$'
+readonly DOWNLOAD_URL_PATTERN='^https?://[A-Za-z0-9._~:/%-]*[A-Za-z0-9._~:%-]$'
+readonly NIGHTLY_TAG_MAX_BYTES=256
 readonly CHECKSUM_PATTERN='^[0-9a-f]{64}$'
 
 repo_root="$(git rev-parse --show-toplevel)" || fail "Not in a git repository."
@@ -211,11 +217,37 @@ cd "$repo_root"
 
 # MARK: - Read the latest version release
 
+[[ "$DOWNLOAD_URL" =~ $DOWNLOAD_URL_PATTERN ]] ||
+    fail "LLAMA_CPP_DOWNLOAD_URL is not a valid base URL: $DOWNLOAD_URL"
+
+# Reads the one asset named $2 from the release JSON in file $1.
+# Sets found_asset_url and found_asset_digest ("" when GitHub reports none).
+# Returns 1 when the release has no such asset,
+# and fails when it has more than one or the fields have the wrong types.
+read_asset() {
+    local json="$1" name="$2" count asset
+    jq -e '(.assets | type) == "array"' "$json" >/dev/null 2>&1 ||
+        fail "The release response in $(basename "$json") has no assets array."
+    count="$(jq --arg name "$name" '[.assets[] | select(.name == $name)] | length' "$json")" ||
+        fail "Could not read the assets in $(basename "$json")."
+    case "$count" in
+        0) return 1 ;;
+        1) ;;
+        *) fail "The release has $count assets named $name." ;;
+    esac
+    asset="$(jq -c --arg name "$name" '[.assets[] | select(.name == $name)][0]' "$json")" ||
+        fail "Could not read asset $name."
+    found_asset_url="$(jq -r '.browser_download_url | if type == "string" then . else error("not a string") end' <<<"$asset")" ||
+        fail "Asset $name has no string browser_download_url."
+    found_asset_digest="$(jq -r '.digest | if . == null then "" elif type == "string" then . else error("not a string") end' <<<"$asset")" ||
+        fail "Asset $name has a digest that is not a string."
+}
+
 request "$API_URL/releases/latest" "$WORK_DIR/latest.json" api
 jq -e 'type == "object"' "$WORK_DIR/latest.json" >/dev/null 2>&1 ||
     fail "The latest release response is not a JSON object."
 
-version_tag="$(jq -r '.tag_name // empty' "$WORK_DIR/latest.json")"
+version_tag="$(jq -r '.tag_name | strings' "$WORK_DIR/latest.json")"
 [ -n "$version_tag" ] || fail "The latest release response has no tag_name."
 
 if ! [[ "$version_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] ||
@@ -227,20 +259,37 @@ IFS=. read -r up_major up_minor up_patch <<<"$upstream_version"
 mapped_version="$((up_major + MAPPED_MAJOR_OFFSET)).$up_minor.$up_patch"
 notice "Latest llama.cpp version release: $version_tag (llama.swift $mapped_version)"
 
-nightly_tag_url="$(jq -r '.assets[]? | select(.name == "nightly-tag.txt") | .browser_download_url' \
-    "$WORK_DIR/latest.json" | head -n 1)"
-if [ -z "$nightly_tag_url" ]; then
+if ! read_asset "$WORK_DIR/latest.json" nightly-tag.txt; then
     age="$(jq -r '(now - (.published_at | fromdateiso8601)) | floor' "$WORK_DIR/latest.json" 2>/dev/null || true)"
     if [[ "$age" =~ ^-?[0-9]+$ ]] && [ "$age" -lt "$NIGHTLY_TAG_GRACE_SECONDS" ]; then
         skip "$version_tag was published ${age}s ago and has no nightly-tag.txt asset yet"
     fi
     fail "$version_tag has no nightly-tag.txt asset, so its nightly build is unknown. Upstream omits this file when no nightly tag points at the release commit."
 fi
+nightly_tag_url="$found_asset_url"
+if [ "$nightly_tag_url" != "$DOWNLOAD_URL/$version_tag/nightly-tag.txt" ]; then
+    fail "Unexpected URL for nightly-tag.txt of $version_tag: $nightly_tag_url"
+fi
 
 request "$nightly_tag_url" "$WORK_DIR/nightly-tag.txt"
-nightly_tag="$(tr -d '[:space:]' <"$WORK_DIR/nightly-tag.txt")"
+
+# Accept one tag with an optional final LF or CRLF, and nothing else.
+nightly_tag_file="$WORK_DIR/nightly-tag.txt"
+nightly_tag_bytes="$(wc -c <"$nightly_tag_file" | tr -d ' ')" ||
+    fail "Could not read nightly-tag.txt."
+nightly_tag_shown="$(head -c "$NIGHTLY_TAG_MAX_BYTES" "$nightly_tag_file" | jq -Rs . 2>/dev/null || echo '(unprintable)')"
+if [ "$nightly_tag_bytes" -gt "$NIGHTLY_TAG_MAX_BYTES" ] ||
+    [ "$(LC_ALL=C tr -d '\000' <"$nightly_tag_file" | wc -c | tr -d ' ')" != "$nightly_tag_bytes" ]; then
+    fail "nightly-tag.txt for $version_tag is malformed: $nightly_tag_shown"
+fi
+nightly_tag="$(cat "$nightly_tag_file"; printf x)"
+nightly_tag="${nightly_tag%x}"
+case "$nightly_tag" in
+    *$'\r\n') nightly_tag="${nightly_tag%$'\r\n'}" ;;
+    *$'\n') nightly_tag="${nightly_tag%$'\n'}" ;;
+esac
 if ! [[ "$nightly_tag" =~ $NIGHTLY_PATTERN ]]; then
-    fail "nightly-tag.txt for $version_tag is malformed: '$(head -c 200 "$WORK_DIR/nightly-tag.txt")'"
+    fail "nightly-tag.txt for $version_tag is malformed: $nightly_tag_shown"
 fi
 notice "Nightly build for $version_tag: $nightly_tag"
 
@@ -249,17 +298,19 @@ notice "Nightly build for $version_tag: $nightly_tag"
 request "$API_URL/releases/tags/$nightly_tag" "$WORK_DIR/nightly.json" api
 jq -e 'type == "object"' "$WORK_DIR/nightly.json" >/dev/null 2>&1 ||
     fail "The response for nightly release $nightly_tag is not a JSON object."
+if [ "$(jq -r '.tag_name | strings' "$WORK_DIR/nightly.json")" != "$nightly_tag" ]; then
+    fail "The response for nightly release $nightly_tag has a different tag_name."
+fi
 
 asset_name="llama-$nightly_tag-xcframework.zip"
-asset_url="$(jq -r --arg name "$asset_name" \
-    '.assets[]? | select(.name == $name) | .browser_download_url' "$WORK_DIR/nightly.json" | head -n 1)"
-asset_digest="$(jq -r --arg name "$asset_name" \
-    '.assets[]? | select(.name == $name) | .digest // empty' "$WORK_DIR/nightly.json" | head -n 1)"
-
-if [ -z "$asset_url" ]; then
-    fail "Nightly release $nightly_tag for $version_tag has no $asset_name asset. Assets: $(jq -r '[.assets[]?.name] | join(", ")' "$WORK_DIR/nightly.json")"
+if ! read_asset "$WORK_DIR/nightly.json" "$asset_name"; then
+    fail "Nightly release $nightly_tag for $version_tag has no $asset_name asset. Assets: $(jq -r '[.assets[].name | strings] | join(", ")' "$WORK_DIR/nightly.json")"
 fi
-[[ "$asset_url" =~ $URL_PATTERN ]] || fail "Unexpected URL for $asset_name: $asset_url"
+asset_url="$found_asset_url"
+asset_digest="$found_asset_digest"
+if [ "$asset_url" != "$DOWNLOAD_URL/$nightly_tag/$asset_name" ]; then
+    fail "Unexpected URL for $asset_name: $asset_url"
+fi
 
 case "$asset_digest" in
     sha256:*) asset_digest="${asset_digest#sha256:}" ;;
@@ -282,7 +333,7 @@ remote_git fetch --tags "$REMOTE" "+refs/heads/$BRANCH:refs/remotes/$REMOTE/$BRA
 package_state() {
     local file="$1" version url checksum
     version="$(sed -n 's|^[[:space:]]*// llama\.cpp v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\) .*|\1|p' "$file")"
-    url="$(sed -n 's|^[[:space:]]*"\(https://[^"]*-xcframework\.zip\)",[[:space:]]*$|\1|p' "$file")"
+    url="$(sed -n 's|^[[:space:]]*"\(https\{0,1\}://[^"]*-xcframework\.zip\)",[[:space:]]*$|\1|p' "$file")"
     checksum="$(sed -n 's|^[[:space:]]*checksum: "\([0-9a-f]*\)"[[:space:]]*$|\1|p' "$file")"
     if [ "$(printf '%s\n' "$url" | grep -c .)" -gt 1 ] ||
         [ "$(printf '%s\n' "$checksum" | grep -c .)" -gt 1 ] ||
@@ -399,7 +450,7 @@ if [ "$package_ok" = false ]; then
             print indent comment
             done_comment = 1
         }
-        /^[[:space:]]*"https:\/\/[^"]*-xcframework\.zip",[[:space:]]*$/ {
+        /^[[:space:]]*"https?:\/\/[^"]*-xcframework\.zip",[[:space:]]*$/ {
             indent = $0; sub(/[^[:space:]].*$/, "", indent)
             print indent "\"" url "\","
             next
