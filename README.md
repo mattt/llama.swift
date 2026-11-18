@@ -59,6 +59,11 @@ so the package uses the XCFramework from the nightly build
 that the version release names in its `nightly-tag.txt` asset.
 `Package.swift` records the llama.cpp version above the XCFramework URL.
 
+A scheduled workflow runs `scripts/sync-llama-release.sh` to make these updates.
+To test that script without network access,
+run `scripts/test-sync-llama-release.sh`,
+which needs `bash`, `git`, `curl`, `jq`, and `python3`.
+
 Versions 1.x and 2.x followed each llama.cpp nightly build,
 with the build number as the minor version.
 For example, `2.10549.0` uses build `b10549`.
