@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
     name: "llama.swift",
     platforms: [
-        .macOS(.v13),
-        .iOS(.v16),
+        .macOS("13.3"),
+        .iOS("16.4"),
         .tvOS(.v16),
         .watchOS(.v9),
         .visionOS(.v1),
